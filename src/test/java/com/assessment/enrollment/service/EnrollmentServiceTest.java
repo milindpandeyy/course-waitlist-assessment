@@ -1,23 +1,20 @@
-package com.example.waitlist.service;
+package com.assessment.enrollment.service;
 
-import static com.example.waitlist.model.DropResult.DROPPED;
-import static com.example.waitlist.model.DropResult.LEARNER_DETAIL_NOT_FOUND;
-import static com.example.waitlist.model.EnrollmentResult.ALREADY_ENROLLED;
-import static com.example.waitlist.model.EnrollmentResult.ALREADY_WAITLISTED;
-import static com.example.waitlist.model.EnrollmentResult.ENROLLED;
-import static com.example.waitlist.model.EnrollmentResult.INELIGIBLE;
-import static com.example.waitlist.model.EnrollmentResult.INVALID_COURSE_ID;
-import static com.example.waitlist.model.EnrollmentResult.MISSING_LEARNER_DETAILS;
-import static com.example.waitlist.model.EnrollmentResult.NOT_ENROLLED;
-import static com.example.waitlist.model.EnrollmentResult.WAITLISTED;
+import static com.assessment.enrollment.model.DropResult.DROPPED;
+import static com.assessment.enrollment.model.DropResult.LEARNER_DETAIL_NOT_FOUND;
+import static com.assessment.enrollment.model.EnrollmentResult.ALREADY_ENROLLED;
+import static com.assessment.enrollment.model.EnrollmentResult.ALREADY_WAITLISTED;
+import static com.assessment.enrollment.model.EnrollmentResult.ENROLLED;
+import static com.assessment.enrollment.model.EnrollmentResult.INELIGIBLE;
+import static com.assessment.enrollment.model.EnrollmentResult.INVALID_COURSE_ID;
+import static com.assessment.enrollment.model.EnrollmentResult.MISSING_LEARNER_DETAILS;
+import static com.assessment.enrollment.model.EnrollmentResult.NOT_ENROLLED;
+import static com.assessment.enrollment.model.EnrollmentResult.WAITLISTED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.example.waitlist.model.Course;
-import com.example.waitlist.model.EnrollmentResult;
-import com.example.waitlist.model.LearnerDetails;
-import java.util.HashSet;
+import com.assessment.enrollment.model.EnrollmentResult;
+import com.assessment.enrollment.model.LearnerDetails;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -27,21 +24,28 @@ import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Enrollment behaviour (DESIGN.md sections 5, 6 and 9). Only {@code enroll} exists in this
- * phase, so state is observed through later {@code enroll} results: a learner who was not
- * stored gets a fresh result instead of ALREADY_*, and a seat that was not taken is still
- * available to the next eligible learner.
+ * Enrollment, drop, status lookup and available seats (DESIGN.md sections 4-6 and 9). Many
+ * tests observe state through later {@code enroll} results: a learner who was not stored gets
+ * a fresh result instead of ALREADY_*, and a seat that was not taken is still available to the
+ * next eligible learner.
  */
-class CourseRegistrationServiceTest {
+class EnrollmentServiceTest {
 
     private static final String COURSE_ID = "CS201";
     private static final String PREREQ = "CS101";
 
-    private CourseRegistrationService service;
+    private EnrollmentService service;
 
     @BeforeEach
     void setUp() {
-        service = new CourseRegistrationService(new Course(COURSE_ID, 2, Set.of(PREREQ)));
+        service = serviceFor(COURSE_ID, 2, Set.of(PREREQ));
+    }
+
+    /** An enrollment service over a freshly configured course. */
+    private static EnrollmentService serviceFor(String courseId, int capacity, Set<String> prerequisites) {
+        CourseConfigurationService configuration = new CourseConfigurationService();
+        configuration.configure(courseId, capacity, prerequisites);
+        return new EnrollmentService(configuration);
     }
 
     private static LearnerDetails eligible(String learnerId) {
@@ -79,7 +83,7 @@ class CourseRegistrationServiceTest {
 
         @Test
         void neverEnrollsMoreThanCapacityAndFillsSeatsInArrivalOrder() {
-            service = new CourseRegistrationService(new Course(COURSE_ID, 3, Set.of()));
+            service = serviceFor(COURSE_ID, 3, Set.of());
 
             for (int i = 1; i <= 10; i++) {
                 EnrollmentResult expected = i <= 3 ? ENROLLED : WAITLISTED;
@@ -114,7 +118,7 @@ class CourseRegistrationServiceTest {
 
         @Test
         void allPrerequisitesAreRequired() {
-            service = new CourseRegistrationService(new Course(COURSE_ID, 2, Set.of("A", "B")));
+            service = serviceFor(COURSE_ID, 2, Set.of("A", "B"));
 
             assertEquals(INELIGIBLE, service.enroll(COURSE_ID, new LearnerDetails("x", Set.of("A"))));
             assertEquals(ENROLLED, service.enroll(COURSE_ID, new LearnerDetails("y", Set.of("A", "B", "C"))));
@@ -123,14 +127,14 @@ class CourseRegistrationServiceTest {
         @ParameterizedTest
         @ValueSource(strings = {"java", "JAVA", "Java", " java ", "\tJaVa\n"})
         void prerequisiteMatchesCompletedCourseIgnoringCaseAndSurroundingWhitespace(String completed) {
-            service = new CourseRegistrationService(new Course(COURSE_ID, 2, Set.of("JAVA")));
+            service = serviceFor(COURSE_ID, 2, Set.of("JAVA"));
 
             assertEquals(ENROLLED, service.enroll(COURSE_ID, new LearnerDetails("alice", Set.of(completed))));
         }
 
         @Test
         void prerequisiteWrittenInAnyCaseMatches() {
-            service = new CourseRegistrationService(new Course(COURSE_ID, 2, Set.of(" Java ", "sql")));
+            service = serviceFor(COURSE_ID, 2, Set.of(" Java ", "sql"));
 
             assertEquals(ENROLLED, service.enroll(COURSE_ID, new LearnerDetails("alice", Set.of("JAVA", "SQL"))));
             assertEquals(INELIGIBLE, service.enroll(COURSE_ID, new LearnerDetails("bob", Set.of("java"))));
@@ -138,14 +142,14 @@ class CourseRegistrationServiceTest {
 
         @Test
         void prerequisiteWithDifferentInnerTextDoesNotMatch() {
-            service = new CourseRegistrationService(new Course(COURSE_ID, 2, Set.of("JAVA")));
+            service = serviceFor(COURSE_ID, 2, Set.of("JAVA"));
 
             assertEquals(INELIGIBLE, service.enroll(COURSE_ID, new LearnerDetails("alice", Set.of("ja va", "javascript"))));
         }
 
         @Test
         void courseWithoutPrerequisitesAcceptsEmptyCompletedCourses() {
-            service = new CourseRegistrationService(new Course(COURSE_ID, 1, Set.of()));
+            service = serviceFor(COURSE_ID, 1, Set.of());
 
             assertEquals(ENROLLED, service.enroll(COURSE_ID, new LearnerDetails("alice", Set.of())));
         }
@@ -229,6 +233,13 @@ class CourseRegistrationServiceTest {
         }
 
         @Test
+        void courseConfiguredInMixedCaseMatchesAnyCase() {
+            service = serviceFor(" Cs201 ", 1, Set.of(" JAVA "));
+
+            assertEquals(ENROLLED, service.enroll("CS201", new LearnerDetails("alice", Set.of("java"))));
+        }
+
+        @Test
         void innerWhitespaceStillDistinguishesLearners() {
             assertEquals(ENROLLED, enroll(eligible("mary ann")));
             assertEquals(ENROLLED, enroll(eligible("maryann")));
@@ -289,7 +300,7 @@ class CourseRegistrationServiceTest {
 
         @BeforeEach
         void oneSeat() {
-            service = new CourseRegistrationService(new Course(COURSE_ID, 1, Set.of(PREREQ)));
+            service = serviceFor(COURSE_ID, 1, Set.of(PREREQ));
         }
 
         @Test
@@ -331,7 +342,7 @@ class CourseRegistrationServiceTest {
 
         @Test
         void eachDropPromotesExactlyOneLearner() {
-            service = new CourseRegistrationService(new Course(COURSE_ID, 2, Set.of(PREREQ)));
+            service = serviceFor(COURSE_ID, 2, Set.of(PREREQ));
             enroll(eligible("a"));
             enroll(eligible("b"));
             enroll(eligible("w1"));
@@ -478,7 +489,7 @@ class CourseRegistrationServiceTest {
 
         @Test
         void seatsNeverExceedCapacityThroughDropsAndPromotions() {
-            service = new CourseRegistrationService(new Course(COURSE_ID, 2, Set.of(PREREQ)));
+            service = serviceFor(COURSE_ID, 2, Set.of(PREREQ));
             for (String learner : new String[] {"a", "b", "c", "d", "e"}) {
                 enroll(eligible(learner));
             }
@@ -493,81 +504,40 @@ class CourseRegistrationServiceTest {
         }
     }
 
-    /** Course creation and validation through {@code createCourse} and the constructor. */
+    /** No operation before configuration (DESIGN.md section 4 "Enrollment", section 9 item 19). */
     @Nested
-    class CourseCreation {
+    class BeforeConfiguration {
 
-        @Test
-        void createCourseStoresIdAndPrerequisitesTrimmedInLowerCase() {
-            Course course = CourseRegistrationService.createCourse(" CS201 ", 3, Set.of("JAVA", " Sql "));
+        private CourseConfigurationService configuration;
 
-            assertEquals("cs201", course.courseId());
-            assertEquals(3, course.capacity());
-            assertEquals(Set.of("java", "sql"), course.prerequisiteCourseIds());
+        @BeforeEach
+        void unconfigured() {
+            configuration = new CourseConfigurationService();
+            service = new EnrollmentService(configuration);
         }
 
         @Test
-        void createCourseMergesPrerequisitesThatDifferOnlyInCase() {
-            Course course = CourseRegistrationService.createCourse("CS201", 1, Set.of("JAVA", "java "));
-
-            assertEquals(Set.of("java"), course.prerequisiteCourseIds());
+        void constructorRejectsNullConfiguration() {
+            assertThrows(NullPointerException.class, () -> new EnrollmentService(null));
         }
 
         @Test
-        void createCourseAcceptsNoPrerequisites() {
-            assertTrue(CourseRegistrationService.createCourse("CS201", 1, Set.of())
-                    .prerequisiteCourseIds().isEmpty());
-        }
-
-        @ParameterizedTest
-        @NullAndEmptySource
-        @ValueSource(strings = {"   ", "\t"})
-        void createCourseRejectsNullOrBlankCourseId(String courseId) {
-            assertThrows(IllegalArgumentException.class,
-                    () -> CourseRegistrationService.createCourse(courseId, 1, Set.of()));
-        }
-
-        @ParameterizedTest
-        @ValueSource(ints = {0, -1, Integer.MIN_VALUE})
-        void createCourseRejectsCapacityBelowOne(int capacity) {
-            assertThrows(IllegalArgumentException.class,
-                    () -> CourseRegistrationService.createCourse("CS201", capacity, Set.of()));
+        void everyOperationIsRejectedBeforeACourseIsConfigured() {
+            assertThrows(IllegalStateException.class, () -> service.enroll(COURSE_ID, eligible("alice")));
+            assertThrows(IllegalStateException.class, () -> service.drop("alice"));
+            assertThrows(IllegalStateException.class, () -> service.getLearnerStatus("alice"));
+            assertThrows(IllegalStateException.class, () -> service.getAvailableSeats());
         }
 
         @Test
-        void createCourseRejectsNullOrBlankPrerequisites() {
-            assertThrows(IllegalArgumentException.class,
-                    () -> CourseRegistrationService.createCourse("CS201", 1, null));
-            assertThrows(IllegalArgumentException.class,
-                    () -> CourseRegistrationService.createCourse("CS201", 1, Set.of("JAVA", " ")));
-            Set<String> withNull = new HashSet<>();
-            withNull.add(null);
-            assertThrows(IllegalArgumentException.class,
-                    () -> CourseRegistrationService.createCourse("CS201", 1, withNull));
-        }
+        void operationsWorkOnceTheCourseIsConfiguredAndRejectedAttemptsLeftNoState() {
+            assertThrows(IllegalStateException.class, () -> service.enroll(COURSE_ID, eligible("alice")));
 
-        @Test
-        void constructorRejectsNullCourse() {
-            assertThrows(NullPointerException.class, () -> new CourseRegistrationService(null));
-        }
+            configuration.configure(COURSE_ID, 1, Set.of(PREREQ));
 
-        @Test
-        void constructorAppliesTheSameValidation() {
-            assertThrows(IllegalArgumentException.class,
-                    () -> new CourseRegistrationService(new Course(null, 1, Set.of())));
-            assertThrows(IllegalArgumentException.class,
-                    () -> new CourseRegistrationService(new Course(" ", 1, Set.of())));
-            assertThrows(IllegalArgumentException.class,
-                    () -> new CourseRegistrationService(new Course(COURSE_ID, 0, Set.of())));
-            assertThrows(IllegalArgumentException.class,
-                    () -> new CourseRegistrationService(new Course(COURSE_ID, 1, Set.of(""))));
-        }
-
-        @Test
-        void constructorNormalizesAMixedCaseCourse() {
-            service = new CourseRegistrationService(new Course(" Cs201 ", 1, Set.of(" JAVA ")));
-
-            assertEquals(ENROLLED, service.enroll("CS201", new LearnerDetails("alice", Set.of("java"))));
+            assertEquals(1, service.getAvailableSeats());
+            assertEquals(NOT_ENROLLED, service.getLearnerStatus("alice"));
+            assertEquals(ENROLLED, enroll(eligible("alice")));
         }
     }
 

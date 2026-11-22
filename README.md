@@ -30,18 +30,18 @@ macOS / Linux:
 
 ```sh
 ./gradlew build
-./gradlew test --tests com.example.waitlist.service.CourseRegistrationServiceTest
+./gradlew test --tests com.assessment.enrollment.service.EnrollmentServiceTest
 ```
 
 Windows (PowerShell or Command Prompt):
 
 ```powershell
 .\gradlew.bat build
-.\gradlew.bat test --tests com.example.waitlist.service.CourseRegistrationServiceTest
+.\gradlew.bat test --tests com.assessment.enrollment.service.EnrollmentServiceTest
 ```
 
-- `build` compiles the code and runs all 96 JUnit Jupiter tests.
-- The second command runs only the service test class.
+- `build` compiles the code and runs all 101 JUnit Jupiter tests.
+- The second command runs only the enrollment service tests (`CourseConfigurationServiceTest` holds the course configuration tests).
 - The HTML test report is written to `build/reports/tests/test/index.html`.
 
 ## Run the interactive CLI

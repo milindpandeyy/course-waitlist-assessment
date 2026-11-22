@@ -1,4 +1,4 @@
-package com.example.waitlist.model;
+package com.assessment.enrollment.model;
 
 /** Result of {@code drop} (DESIGN.md section 4). */
 public enum DropResult {

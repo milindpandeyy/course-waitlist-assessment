@@ -15,7 +15,7 @@ deviations, real command output). Never invent results; mark unchecked items
 ## Commands (Windows / PowerShell)
 
 - Build + all tests: `.\gradlew.bat build`
-- One test class: `.\gradlew.bat test --tests com.example.waitlist.service.CourseRegistrationServiceTest`
+- One test class: `.\gradlew.bat test --tests com.assessment.enrollment.service.EnrollmentServiceTest`
 - Tests target observable service behaviour; do not add tests for records, enums or POJOs.
 - Test report: `build/reports/tests/test/index.html`
 - Interactive CLI: `.\gradlew.bat run -q --console=plain`
@@ -29,13 +29,15 @@ deviations, real command output). Never invent results; mark unchecked items
 
 ## Code layout
 
-- `com.example.waitlist.model` — records `Course`, `LearnerDetails`; enums `EnrollmentResult`
+- `com.assessment.enrollment.model` — records `Course`, `LearnerDetails`; enums `EnrollmentResult`
   (also the status-lookup result; `NOT_ENROLLED` means neither enrolled nor waitlisted) and `DropResult`.
-- `com.example.waitlist.service` — `CourseRegistrationService`, which owns the in-memory
-  state (a `HashSet` of enrolled IDs and an `ArrayDeque` FIFO waitlist). No status map,
-  repository or interface split; single-threaded, no locks.
-- `com.example.waitlist.cli` — `WaitlistCli` (Gradle `application` main class): Scanner menu,
-  input/output only; every rule stays in the service (DESIGN.md §13).
+- `com.assessment.enrollment.service` — `CourseConfigurationService` (configures the one course,
+  once; validates and lower-cases IDs) and `EnrollmentService` (enroll, drop, status, seats; owns
+  a `HashSet` of enrolled IDs and an `ArrayDeque` FIFO waitlist; reads the course from the
+  configuration service on every call). Package-private `Ids` holds the shared normalization and
+  blank check. No status map, repository or interface split; single-threaded, no locks.
+- `com.assessment.enrollment.cli` — `EnrollmentCli` (Gradle `application` main class): Scanner
+  menu, input/output only, no business rules; `main` wires the two services (DESIGN.md §13).
 
 ## Git
 

@@ -1,4 +1,4 @@
-package com.example.waitlist.model;
+package com.assessment.enrollment.model;
 
 import java.util.Set;
 

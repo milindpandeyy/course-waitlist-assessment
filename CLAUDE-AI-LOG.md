@@ -212,6 +212,63 @@ directory:
 | --- | --- | --- |
 | 1 | Approved fixing the `gradlew` file mode. | `git update-index --chmod=+x gradlew`: the index now shows mode `100755`. Content unchanged. The README's `chmod` workaround was removed. Not tested on macOS/Linux. |
 
+## Task 8 — Refactoring (2026-11-22)
+
+**Prompt:** Branch out from the current branch for a refactoring. Proposals:
+- rename `com.example.waitlist` to `com.assessment.enrollment`;
+- rename `WaitlistCli` to `EnrollmentCli`;
+- reduce `CourseRegistrationService` to an `EnrollmentService` containing only enrollment, drop,
+  status and capacity;
+- add a `CourseConfigurationService` to configure the course once.
+
+Review this first for good coding practices such as Separation of Concerns, DRY and YAGNI.
+Then: "GoAhead. lets do it cleanly. Lets keep cli free from business rules."
+
+**Review reported (before changes):**
+- The renames are sound.
+- The split fixes two mixed concerns: static `createCourse` lived on the registration service,
+  and the "configure once" rule lived in the CLI, where it was untested.
+- Recommended `EnrollmentService` read the course from the configuration service instead of
+  taking a `Course`, so there is one validated source and no repeated validation.
+- Recommended one shared helper for ID normalization and the blank check (DRY).
+- YAGNI: no interfaces, catalog, or reconfigure/delete.
+
+**Produced:** branch `refactor/waitlist-poc` from `867b293`.
+- **Packages:** moved to `com.assessment.enrollment` with `git mv` (history kept); Gradle
+  `group` and `mainClass` updated.
+- **`CourseConfigurationService`:** `configure` (lower-cases, `IllegalArgumentException` for
+  invalid input, `IllegalStateException` on a second call, checked first), `isConfigured`,
+  `getCourse` (`IllegalStateException` before configuration).
+- **`EnrollmentService`:** enroll, drop, status and seats; reads the course on every call, so
+  the `requireCourse` guard is now reachable and tested.
+- **`Ids`:** package-private; `isBlank`, `normalize`, `normalizeAll`. Replaces 5 duplicated blank
+  checks and the private normalizers.
+- **`EnrollmentCli`:** `main` wires both services into the constructor. The "configure once"
+  check moved into the service; the CLI only calls `isConfigured()` to choose the next prompt.
+  User-visible output is unchanged.
+- **Tests:** `EnrollmentServiceTest` (renamed; `BeforeConfiguration` group added) and a new
+  `CourseConfigurationServiceTest` holding the former `CourseCreation` tests plus configure-once,
+  retry and `getCourse` tests.
+- **Docs:** `DESIGN.md` §2, §3, §4 (rewritten), §5, A5, A15, §9 (items 17–19), §10, §12 phase 8
+  and §13 (rewritten); `README.md` test command and count; `CLAUDE.md` commands and code layout.
+
+**Notes:** Dropped `constructorAppliesTheSameValidation`, because there is only one creation path
+now. `constructorNormalizesAMixedCaseCourse` became `courseConfiguredInMixedCaseMatchesAnyCase`.
+
+**Claude verification:**
+- `.\gradlew.bat clean build` (run as `./gradlew` in Git Bash): `BUILD SUCCESSFUL`, no warnings.
+- 101/101 tests passed: `CourseConfigurationServiceTest` 15, `EnrollmentServiceTest` 86
+  (was 96 in total; +3 `BeforeConfiguration`, +2 configuration tests).
+- A scripted CLI session gave the same output as before the refactor:
+  - no-course prompt;
+  - capacity 0 rejected, then a successful create;
+  - `ENROLLED`, `WAITLISTED`, `INELIGIBLE`, `ALREADY_WAITLISTED`;
+  - drop with promotion, then a repeated drop;
+  - second create refused, `INVALID_COURSE_ID`, invalid option, exit.
+
+**Candidate review**
+- Not yet reviewed.
+
 ## Candidate verification
 
 Independent build and test run by the candidate after all implementation: **Pending candidate

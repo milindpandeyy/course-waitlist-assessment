@@ -17,7 +17,7 @@ The assessment also asks for an explicit policy for an ineligible learner reachi
 - State is **in-memory only** and lost on restart.
 - **Single-threaded use only.** The service uses no locks and is not thread-safe.
 - Tests use **JUnit Jupiter (JUnit 5)**.
-- Records and enums live in `com.example.waitlist.model`; service logic in `com.example.waitlist.service`; the interactive console front end in `com.example.waitlist.cli` (§13).
+- Records and enums live in `com.assessment.enrollment.model`; service logic in `com.assessment.enrollment.service`; the interactive console front end in `com.assessment.enrollment.cli` (§13).
 
 ## 3. Domain model
 
@@ -34,7 +34,7 @@ The assessment also asks for an explicit policy for an ineligible learner reachi
 
 Both records store an unmodifiable copy of their set. `LearnerDetails` accepts a null learner ID or a null completed-course set so that the service can report them as `MISSING_LEARNER_DETAILS`. There is no course catalog or completed-course management.
 
-### In-memory registration state (owned by the service)
+### In-memory registration state (owned by `EnrollmentService`)
 
 - `Set<String> enrolledLearners = new HashSet<>()`
 - `Queue<String> waitlistedLearners = new ArrayDeque<>()`
@@ -43,22 +43,41 @@ There is no separate status map, waitlist membership map, or repository abstract
 
 ## 4. Service boundary and public API
 
-One concrete class, `CourseRegistrationService`, in the `service` package (no interface/implementation split).
+Two concrete classes in the `service` package, one per concern (no interface/implementation split):
+
+- `CourseConfigurationService` configures the single course offering, once.
+- `EnrollmentService` handles enrollment, drop, status lookup and available seats for that course.
 
 ```java
-static Course createCourse(String courseId, int capacity, Set<String> prerequisiteCourseIds);
-CourseRegistrationService(Course course);   // the single offering; null is rejected
+// CourseConfigurationService
+Course configure(String courseId, int capacity, Set<String> prerequisiteCourseIds);
+boolean isConfigured();
+Course getCourse();
+
+// EnrollmentService
+EnrollmentService(CourseConfigurationService configuration);   // null is rejected
 EnrollmentResult enroll(String courseId, LearnerDetails learnerDetails);
 DropResult drop(String learnerId);
 int getAvailableSeats();
 EnrollmentResult getLearnerStatus(String learnerId);
 ```
 
-`createCourse` builds a course with its prerequisites, storing the course ID and every prerequisite ID trimmed and in lower case, whatever case they were entered in. Invalid input creates no course: it throws `IllegalArgumentException` for a null/blank course ID, a capacity below 1, a null prerequisite set, or a null/blank prerequisite ID. The constructor passes the given `Course` through `createCourse`, so a course is validated and stored the same way on both paths.
+### Course configuration
 
-No operation works without a course. Every public instance method (`enroll`, `drop`, `getAvailableSeats`, `getLearnerStatus`) first calls a course check that throws `IllegalStateException` if no course is present. Because the constructor rejects a null or invalid course, a service cannot normally exist without one; the check is a defensive guard.
+- `configure` creates the course with its prerequisites. It stores the course ID and every prerequisite ID trimmed and in lower case, whatever case they were entered in, and returns the stored `Course`.
+- A course can be configured **once**. A second call throws `IllegalStateException` and leaves the configured course unchanged. This check runs before input validation.
+- Invalid input configures nothing: `IllegalArgumentException` for a null/blank course ID, a capacity below 1, a null prerequisite set, or a null/blank prerequisite ID. A later call with valid input can still succeed.
+- `isConfigured()` reports whether a course exists. `getCourse()` returns it, or throws `IllegalStateException` if none is configured yet.
 
-`getAvailableSeats()` returns `course.capacity() - enrolledLearners.size()`; it takes no course ID because each instance owns one offering.
+### Enrollment
+
+- `EnrollmentService` holds no copy of the course: each public method reads it from the configuration service through `getCourse()`. So it always works on the one validated, normalized course.
+- Before a course is configured, every public method throws `IllegalStateException` and changes nothing.
+- `getAvailableSeats()` returns `course.capacity() - enrolledLearners.size()`. It takes no course ID because there is one offering.
+
+### Shared ID handling
+
+ID normalization and the null/blank check are needed by both services. They live once, in a package-private helper (`Ids`) in the `service` package, not in either service.
 
 ### `EnrollmentResult` enum
 
@@ -94,7 +113,7 @@ Every identifier passed to any method is **case-insensitive**, and **surrounding
 - learner IDs in `enroll`, `drop` and `getLearnerStatus`;
 - prerequisite and completed course IDs when checking eligibility — a prerequisite `"JAVA"` is met by a completed course `"java"` or `" Java "`.
 
-The service compares IDs in a normalized form (whitespace stripped from both ends, lower-cased with `Locale.ROOT`). It stores the course ID, prerequisite IDs and learner IDs in that form, so `" Alice "` and `"alice"` are the same learner. Inner whitespace is significant (`"mary ann"` ≠ `"maryann"`). Normalization happens in the service; the records themselves do not change their values.
+The services compare IDs in a normalized form (whitespace stripped from both ends, lower-cased with `Locale.ROOT`). `CourseConfigurationService` stores the course ID and prerequisite IDs in that form, and `EnrollmentService` stores learner IDs in that form, so `" Alice "` and `"alice"` are the same learner. Inner whitespace is significant (`"mary ann"` ≠ `"maryann"`). Normalization happens in the services; the records themselves do not change their values.
 
 ### Enrollment
 
@@ -150,7 +169,7 @@ This is **state-level idempotency**, not request-key replay or identical-respons
 - **A2:** Prerequisites are sets of course IDs, and all of them must be completed.
 - **A3:** Only eligible learners can join the waitlist; the public API cannot produce an ineligible waitlist entry.
 - **A4:** Single-threaded operation; concurrency is not handled.
-- **A5:** One offering per service instance.
+- **A5:** One offering, configured once per `CourseConfigurationService`; an `EnrollmentService` serves the course of the configuration service it was given.
 - **A6:** Learner ID and completed-course set are required; an empty completed-course set is valid.
 - **A7:** In-memory state is ephemeral.
 - **A8:** Duplicate enroll/drop requests create no additional state changes, although their returned values may differ.
@@ -160,7 +179,7 @@ This is **state-level idempotency**, not request-key replay or identical-respons
 - **A12:** There is no `INVALID_LEARNER_DETAILS`; missing/blank IDs and a missing completed-course set map to `MISSING_LEARNER_DETAILS`.
 - **A13:** All IDs (course, learner, prerequisite and completed-course) are case-insensitive and ignore surrounding whitespace (§5 *Input handling*).
 - **A14:** A learner who is neither enrolled nor waitlisted has status `NOT_ENROLLED`.
-- **A15:** A course needs a non-blank ID, a capacity of at least 1 and non-blank prerequisite IDs; otherwise no course is created (§4 `createCourse`). The `Course` record itself does not validate; the service does.
+- **A15:** A course needs a non-blank ID, a capacity of at least 1 and non-blank prerequisite IDs; otherwise no course is configured (§4 *Course configuration*). The `Course` record itself does not validate; `CourseConfigurationService` does.
 
 ## 8. Policy: ineligible learner at the front of the waitlist
 
@@ -174,7 +193,7 @@ This answers the assessment's "ineligible learner at the front of the waitlist" 
 
 ## 9. Testing
 
-All tests are in `CourseRegistrationServiceTest` (JUnit Jupiter), grouped by area, and test observable service behaviour and invariants. Records and enums have no behaviour of their own and are not tested directly.
+Tests are in `EnrollmentServiceTest` and `CourseConfigurationServiceTest` (JUnit Jupiter), grouped by area, and test observable service behaviour and invariants. Records and enums have no behaviour of their own and are not tested directly.
 
 Covered scenarios:
 
@@ -194,7 +213,9 @@ Covered scenarios:
 14. `getLearnerStatus()` reports enrolled, waitlisted, `NOT_ENROLLED` and missing ID, including after promotion and drop.
 15. Capacity, uniqueness, and enrolled/waitlisted disjointness hold after mixed operations.
 16. IDs differing only in case or surrounding whitespace are equal in every method, including prerequisite matching.
-17. `createCourse` and the constructor store course and prerequisite IDs in lower case and reject a null/blank course ID, a capacity below 1, and null/blank prerequisites; a null `Course` is rejected.
+17. `configure` stores course and prerequisite IDs in lower case and rejects a null/blank course ID, a capacity below 1, and null/blank prerequisites, configuring nothing; a valid retry then succeeds.
+18. A second `configure` is rejected and leaves the course unchanged; `getCourse()` before configuration is rejected.
+19. Every `EnrollmentService` method is rejected before a course is configured; a null configuration service is rejected.
 
 Concurrency is out of scope and is not tested.
 
@@ -202,18 +223,21 @@ Concurrency is out of scope and is not tested.
 
 ```text
 course-waitlist/
-├── src/main/java/com/example/waitlist/
+├── src/main/java/com/assessment/enrollment/
 │   ├── model/
 │   │   ├── Course.java
 │   │   ├── LearnerDetails.java
 │   │   ├── EnrollmentResult.java
 │   │   └── DropResult.java
 │   ├── service/
-│   │   └── CourseRegistrationService.java
+│   │   ├── CourseConfigurationService.java
+│   │   ├── EnrollmentService.java
+│   │   └── Ids.java
 │   └── cli/
-│       └── WaitlistCli.java
-├── src/test/java/com/example/waitlist/service/
-│   └── CourseRegistrationServiceTest.java
+│       └── EnrollmentCli.java
+├── src/test/java/com/assessment/enrollment/service/
+│   ├── CourseConfigurationServiceTest.java
+│   └── EnrollmentServiceTest.java
 ├── gradle/wrapper/
 ├── gradlew
 ├── gradlew.bat
@@ -238,30 +262,37 @@ AI assistance is recorded in `CLAUDE-AI-LOG.md`, kept separate from this documen
 5. Status lookup, available seats and tests.
 6. Final verification, assessment-gap review, documentation and log.
 7. Interactive CLI (§13), launched with `./gradlew run`.
+8. Refactoring: package `com.assessment.enrollment`; course configuration split from enrollment (§4); CLI free of business rules (§13).
 
 ## 13. Interactive CLI
 
-`com.example.waitlist.cli.WaitlistCli` is a console front end to `CourseRegistrationService`. It reads input with a `java.util.Scanner`, shows a numbered menu and dispatches the choice with a `switch`. Gradle's `application` plugin sets it as the main class, so `./gradlew run` (`.\gradlew.bat run` on Windows) starts it; the `run` task forwards standard input.
+`com.assessment.enrollment.cli.EnrollmentCli` is a console front end to the two services. It reads input with a `java.util.Scanner`, shows a numbered menu and dispatches the choice with a `switch`. Gradle's `application` plugin sets it as the main class, so `./gradlew run` (`.\gradlew.bat run` on Windows) starts it; the `run` task forwards standard input.
 
-The CLI is limited to input and output. It holds at most one service instance and calls only the public API of §4; validation, normalization, eligibility, capacity, waitlisting and promotion all stay in the service, and the CLI prints the enum value the service returns.
+### Responsibilities
+
+The CLI contains **no business rules**; it only reads input, converts it, calls the services and prints what they return.
+
+- `main` wires the objects: one `CourseConfigurationService`, one `EnrollmentService` built on it, and the CLI, which receives both services together with its `Scanner` and `PrintStream`.
+- The services enforce every rule: configure once, course validation, ID normalization, eligibility, capacity, waitlisting, promotion and the "no operation before configuration" guard.
+- The CLI only asks `isConfigured()` to choose what to show next. A rule refused by a service reaches the user as the exception's message.
 
 | Option | Prompts | Service call | Output |
 | --- | --- | --- | --- |
-| 1. Create course | course ID, capacity, prerequisites (comma-separated, blank for none) | `createCourse`, then `new CourseRegistrationService(course)` | `Course created.`, or `Course not created: <reason>` from the `IllegalArgumentException` |
+| 1. Create course | course ID, capacity, prerequisites (comma-separated, blank for none) | `configure` | `Course created.`, or `Course not created: <reason>` (the exception's message) |
 | 2. Enroll learner | course ID, learner ID, completed courses (comma-separated, blank for none) | `enroll` | `Result: <EnrollmentResult>` |
 | 3. Drop learner | learner ID | `drop` | `Result: <DropResult>` |
 | 4. Check status | learner ID | `getLearnerStatus` | `Status: <EnrollmentResult>` |
 | 5. Available seats | — | `getAvailableSeats` | `Available seats: <n>` |
 | 6. Exit | — | — | `Exit.` |
 
-Input rules (input handling only, no business rules):
+### Flow and input conversion
 
-- Options 2–5 before any course exists print `No course yet. Create a course first.` and go straight into the *Create course* prompts. The chosen option is not carried out; afterwards the menu is shown again.
-- Only one course can be created per CLI run (one offering, A5). Once a course exists, *Create course* prints `A course has already been created. Only one course is allowed.`, asks for nothing and leaves the course and its registrations unchanged. If course creation fails, nothing is created and *Create course* can be tried again.
-- A capacity that is not a whole number prints `Capacity must be a whole number.`; range checks are left to `createCourse`.
-- Comma-separated lists are split on `,` and empty entries are skipped; IDs are passed as typed and normalized by the service.
+- Options 2–5 while `isConfigured()` is false print `No course yet. Create a course first.` and go straight into the *Create course* prompts. The chosen option is not carried out; afterwards the menu is shown again.
+- *Create course* while `isConfigured()` is true prints `A course has already been created. Only one course is allowed.` and asks for nothing. The rule itself is `configure`'s (§4): if a second call reached the service, it would refuse it.
+- Capacity text that is not a whole number prints `Capacity must be a whole number.` (a conversion error); range checks belong to `configure`.
+- Comma-separated lists are split on `,` and empty entries are skipped; IDs are passed as typed and normalized by the services.
 - An unknown menu choice prints `Invalid option. Enter a number from 1 to 6.`
 - End of input exits like option 6, without the message.
 - Input is read as plain lines with no platform- or shell-specific handling.
 
-The CLI has no unit tests of its own; it adds no rules, and the behaviour it exposes is covered by `CourseRegistrationServiceTest`. It was checked by running a scripted session through `./gradlew run`.
+The CLI has no unit tests of its own; it holds no rules, and the behaviour it exposes is covered by the service tests. It was checked by running scripted sessions through `./gradlew run`.

@@ -1,4 +1,4 @@
-package com.example.waitlist.model;
+package com.assessment.enrollment.model;
 
 /**
  * Result of {@code enroll} and of {@code getLearnerStatus} (DESIGN.md section 4).

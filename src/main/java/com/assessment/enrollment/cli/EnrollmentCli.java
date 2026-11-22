@@ -1,19 +1,21 @@
-package com.example.waitlist.cli;
+package com.assessment.enrollment.cli;
 
-import com.example.waitlist.model.LearnerDetails;
-import com.example.waitlist.service.CourseRegistrationService;
+import com.assessment.enrollment.model.LearnerDetails;
+import com.assessment.enrollment.service.CourseConfigurationService;
+import com.assessment.enrollment.service.EnrollmentService;
 import java.io.PrintStream;
 import java.util.LinkedHashSet;
 import java.util.Scanner;
 import java.util.Set;
 
 /**
- * Interactive console front end for {@link CourseRegistrationService} (DESIGN.md section 13).
+ * Interactive console front end (DESIGN.md section 13).
  *
- * <p>Input and output only: every rule (validation, normalization, eligibility, capacity,
- * waitlist, promotion) is applied by the service, and the CLI prints the result it returns.
+ * <p>Input and output only: it reads and converts input, calls the services and prints what
+ * they return. Every business rule (configure once, validation, normalization, eligibility,
+ * capacity, waitlist, promotion) is enforced by the services.
  */
-public final class WaitlistCli {
+public final class EnrollmentCli {
 
     private static final String MENU = """
 
@@ -25,17 +27,23 @@ public final class WaitlistCli {
             5. Available seats
             6. Exit""";
 
+    private final CourseConfigurationService configuration;
+    private final EnrollmentService enrollment;
     private final Scanner in;
     private final PrintStream out;
-    private CourseRegistrationService service;
 
-    public WaitlistCli(Scanner in, PrintStream out) {
+    public EnrollmentCli(CourseConfigurationService configuration, EnrollmentService enrollment,
+                         Scanner in, PrintStream out) {
+        this.configuration = configuration;
+        this.enrollment = enrollment;
         this.in = in;
         this.out = out;
     }
 
     public static void main(String[] args) {
-        new WaitlistCli(new Scanner(System.in), System.out).run();
+        CourseConfigurationService configuration = new CourseConfigurationService();
+        EnrollmentService enrollment = new EnrollmentService(configuration);
+        new EnrollmentCli(configuration, enrollment, new Scanner(System.in), System.out).run();
     }
 
     /** Shows the menu until the user chooses Exit or the input ends. */
@@ -62,7 +70,7 @@ public final class WaitlistCli {
     }
 
     private void createCourse() {
-        if (service != null) {
+        if (configuration.isConfigured()) {
             out.println("A course has already been created. Only one course is allowed.");
             return;
         }
@@ -80,16 +88,15 @@ public final class WaitlistCli {
             return;
         }
         try {
-            service = new CourseRegistrationService(
-                    CourseRegistrationService.createCourse(courseId, capacity, splitIds(prerequisites)));
+            configuration.configure(courseId, capacity, splitIds(prerequisites));
             out.println("Course created.");
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException | IllegalStateException e) {
             out.println("Course not created: " + e.getMessage());
         }
     }
 
     private void enrollLearner() {
-        if (!hasCourse()) {
+        if (!courseReady()) {
             return;
         }
         String courseId = prompt("Course ID: ");
@@ -98,48 +105,49 @@ public final class WaitlistCli {
         if (completed == null) {
             return;
         }
-        out.println("Result: " + service.enroll(courseId, new LearnerDetails(learnerId, splitIds(completed))));
+        out.println("Result: " + enrollment.enroll(courseId, new LearnerDetails(learnerId, splitIds(completed))));
     }
 
     private void dropLearner() {
-        if (!hasCourse()) {
+        if (!courseReady()) {
             return;
         }
         String learnerId = prompt("Learner ID: ");
         if (learnerId == null) {
             return;
         }
-        out.println("Result: " + service.drop(learnerId));
+        out.println("Result: " + enrollment.drop(learnerId));
     }
 
     private void checkStatus() {
-        if (!hasCourse()) {
+        if (!courseReady()) {
             return;
         }
         String learnerId = prompt("Learner ID: ");
         if (learnerId == null) {
             return;
         }
-        out.println("Status: " + service.getLearnerStatus(learnerId));
+        out.println("Status: " + enrollment.getLearnerStatus(learnerId));
     }
 
     private void availableSeats() {
-        if (hasCourse()) {
-            out.println("Available seats: " + service.getAvailableSeats());
+        if (courseReady()) {
+            out.println("Available seats: " + enrollment.getAvailableSeats());
         }
     }
 
     /**
-     * True if a course exists. Otherwise tells the user to create one first and runs the
-     * Create course prompts; the chosen option is not carried out, and the menu is shown again.
+     * Menu flow, not a rule: if no course is configured yet, says so and runs the Create course
+     * prompts instead of the chosen option. The services themselves reject any operation
+     * before configuration.
      */
-    private boolean hasCourse() {
-        if (service == null) {
-            out.println("No course yet. Create a course first.");
-            createCourse();
-            return false;
+    private boolean courseReady() {
+        if (configuration.isConfigured()) {
+            return true;
         }
-        return true;
+        out.println("No course yet. Create a course first.");
+        createCourse();
+        return false;
     }
 
     /** Prints the prompt and reads one line; returns null when the input has ended. */
@@ -149,7 +157,7 @@ public final class WaitlistCli {
         return in.hasNextLine() ? in.nextLine() : null;
     }
 
-    /** Splits a comma-separated list into IDs, skipping empty entries; the service normalizes them. */
+    /** Splits a comma-separated list into IDs, skipping empty entries; the services normalize them. */
     private static Set<String> splitIds(String text) {
         Set<String> ids = new LinkedHashSet<>();
         for (String part : text.split(",")) {
