@@ -122,6 +122,51 @@ correction 4; 96/96 after corrections 5 and 6.
 | 5 | Add the two remaining gap tests too. | Added `waitlistedLearnerIsReportedBeforePrerequisitesAreRechecked` (waitlisted learner re-requesting with missing prerequisites gets `ALREADY_WAITLISTED`, stays waitlisted) and `reEnrollmentAfterDropTakesAFreeSeat` (dropped learner re-enrolls into a free seat). Test-only change. |
 | 6 | No method should work unless the course is created first; add a validation method and call it from all public methods. | Added private `requireCourse()` (throws `IllegalStateException` if `course` is null), called first in `enroll`, `drop`, `getAvailableSeats` and `getLearnerStatus`. The static `createCourse` is excluded because it is what creates the course. Not unit-tested: the constructor already rejects a null/invalid course and `course` is `final`, so the guard cannot be reached through the public API. `DESIGN.md` §4 updated. |
 
+## Task 6 — Interactive CLI (2026-11-22)
+
+**Prompt:** Read `DESIGN.md` and the implementation; implement a simple interactive CLI with
+`Scanner`, a numbered menu and `switch`; support Create Course, Enroll Learner, Drop Learner,
+Check Status, Available Seats and Exit; keep the CLI to input/output, reusing the service; make
+`./gradlew run` launch it; add run instructions to `README.md`; document the CLI in its own
+`DESIGN.md` section; run the application and tests; update this log.
+
+**Produced:** `cli/WaitlistCli` (menu loop, one prompt per input, prints the service's enum
+result; `Scanner`/`PrintStream` injected through the constructor); Gradle `application` plugin
+with `mainClass` and `run { standardInput = System.in }`; `DESIGN.md` §13 (menu-to-API table,
+input rules) plus §2, §10 and §12 phase 7; `README.md` with prerequisites, build/test and run
+instructions and an example session.
+
+**Notes:** Claude made these CLI decisions; they are recorded in §13 for review:
+- Choosing *Create course* again replaced the course and discarded its registrations. The
+  candidate found this was a bug (row 2).
+- Options 2–5 before a course exists printed a hint and returned to the menu. The candidate
+  found this was a bug (row 3).
+- A non-numeric capacity is rejected by the CLI; range checks are left to `createCourse`.
+- End of input exits the CLI.
+- A leading byte-order mark was stripped: PowerShell 5.1 added one to piped input, which made
+  the first menu choice invalid in the first scripted run. Removed after review (row 1).
+- No CLI unit tests were added: the CLI adds no rules, and the service tests cover the
+  behaviour it exposes.
+
+**Claude verification:** `BUILD SUCCESSFUL`, no warnings; 96/96 tests passed. Scripted
+sessions through `.\gradlew.bat run -q --console=plain` gave the expected output: no-course
+hint, `ENROLLED`, `WAITLISTED`, `INELIGIBLE`, `ALREADY_ENROLLED`, `INVALID_COURSE_ID`,
+`DROPPED` with FIFO promotion (status `ENROLLED`, seats 0), repeated drop
+`LEARNER_DETAIL_NOT_FOUND`, non-numeric capacity, blank course ID and capacity 0 rejected,
+invalid option, exit.
+
+**Candidate review and corrections**
+
+| # | Candidate comment | Correction by Claude |
+| --- | --- | --- |
+| 1 | The byte-order-mark check in `prompt()` (an invisible U+FEFF literal in the source) is not acceptable; the CLI must be platform-agnostic. | Removed the check, so `prompt()` reads plain lines. Removed the rule from `DESIGN.md` §13. Re-verified with input piped from a POSIX shell, which adds no byte-order mark. |
+| 2 | Candidate found a bug: selecting *Create course* again must not be allowed. | Once a course exists, *Create course* now prints `A course has already been created. Only one course is allowed.`, asks for nothing and leaves the course and its registrations unchanged. A failed creation can still be retried. `DESIGN.md` §13 and `README.md` updated. |
+| 3 | Candidate found a bug: choosing *Enroll* before any course exists returns to the menu silently; it should prompt the user to create a course first. | The one-line hint was printed but immediately followed by the redrawn menu. Options 2–5 without a course now print `No course yet. Create a course first.` and run the *Create course* prompts; the chosen option is not carried out. `DESIGN.md` §13 updated. |
+
+All three issues were found by the candidate while reviewing the CLI; Claude's own testing had
+not caught them. Claude made the corrections. After each one: `BUILD SUCCESSFUL`, no warnings,
+96/96 tests passed, and a scripted CLI session confirmed the fix.
+
 ## Candidate verification
 
 Independent build and test run by the candidate after all implementation: **Pending candidate

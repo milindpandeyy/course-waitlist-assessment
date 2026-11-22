@@ -18,6 +18,7 @@ deviations, real command output). Never invent results; mark unchecked items
 - One test class: `.\gradlew.bat test --tests com.example.waitlist.service.CourseRegistrationServiceTest`
 - Tests target observable service behaviour; do not add tests for records, enums or POJOs.
 - Test report: `build/reports/tests/test/index.html`
+- Interactive CLI: `.\gradlew.bat run -q --console=plain`
 
 ## Build setup
 
@@ -33,6 +34,8 @@ deviations, real command output). Never invent results; mark unchecked items
 - `com.example.waitlist.service` — `CourseRegistrationService`, which owns the in-memory
   state (a `HashSet` of enrolled IDs and an `ArrayDeque` FIFO waitlist). No status map,
   repository or interface split; single-threaded, no locks.
+- `com.example.waitlist.cli` — `WaitlistCli` (Gradle `application` main class): Scanner menu,
+  input/output only; every rule stays in the service (DESIGN.md §13).
 
 ## Git
 

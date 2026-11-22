@@ -17,7 +17,7 @@ The assessment also asks for an explicit policy for an ineligible learner reachi
 - State is **in-memory only** and lost on restart.
 - **Single-threaded use only.** The service uses no locks and is not thread-safe.
 - Tests use **JUnit Jupiter (JUnit 5)**.
-- Records and enums live in `com.example.waitlist.model`; service logic in `com.example.waitlist.service`.
+- Records and enums live in `com.example.waitlist.model`; service logic in `com.example.waitlist.service`; the interactive console front end in `com.example.waitlist.cli` (§13).
 
 ## 3. Domain model
 
@@ -208,8 +208,10 @@ course-waitlist/
 │   │   ├── LearnerDetails.java
 │   │   ├── EnrollmentResult.java
 │   │   └── DropResult.java
-│   └── service/
-│       └── CourseRegistrationService.java
+│   ├── service/
+│   │   └── CourseRegistrationService.java
+│   └── cli/
+│       └── WaitlistCli.java
 ├── src/test/java/com/example/waitlist/service/
 │   └── CourseRegistrationServiceTest.java
 ├── gradle/wrapper/
@@ -235,3 +237,31 @@ AI assistance is recorded in `CLAUDE-AI-LOG.md`, kept separate from this documen
 4. Drop, promotion and tests.
 5. Status lookup, available seats and tests.
 6. Final verification, assessment-gap review, documentation and log.
+7. Interactive CLI (§13), launched with `./gradlew run`.
+
+## 13. Interactive CLI
+
+`com.example.waitlist.cli.WaitlistCli` is a console front end to `CourseRegistrationService`. It reads input with a `java.util.Scanner`, shows a numbered menu and dispatches the choice with a `switch`. Gradle's `application` plugin sets it as the main class, so `./gradlew run` (`.\gradlew.bat run` on Windows) starts it; the `run` task forwards standard input.
+
+The CLI is limited to input and output. It holds at most one service instance and calls only the public API of §4; validation, normalization, eligibility, capacity, waitlisting and promotion all stay in the service, and the CLI prints the enum value the service returns.
+
+| Option | Prompts | Service call | Output |
+| --- | --- | --- | --- |
+| 1. Create course | course ID, capacity, prerequisites (comma-separated, blank for none) | `createCourse`, then `new CourseRegistrationService(course)` | `Course created.`, or `Course not created: <reason>` from the `IllegalArgumentException` |
+| 2. Enroll learner | course ID, learner ID, completed courses (comma-separated, blank for none) | `enroll` | `Result: <EnrollmentResult>` |
+| 3. Drop learner | learner ID | `drop` | `Result: <DropResult>` |
+| 4. Check status | learner ID | `getLearnerStatus` | `Status: <EnrollmentResult>` |
+| 5. Available seats | — | `getAvailableSeats` | `Available seats: <n>` |
+| 6. Exit | — | — | `Exit.` |
+
+Input rules (input handling only, no business rules):
+
+- Options 2–5 before any course exists print `No course yet. Create a course first.` and go straight into the *Create course* prompts. The chosen option is not carried out; afterwards the menu is shown again.
+- Only one course can be created per CLI run (one offering, A5). Once a course exists, *Create course* prints `A course has already been created. Only one course is allowed.`, asks for nothing and leaves the course and its registrations unchanged. If course creation fails, nothing is created and *Create course* can be tried again.
+- A capacity that is not a whole number prints `Capacity must be a whole number.`; range checks are left to `createCourse`.
+- Comma-separated lists are split on `,` and empty entries are skipped; IDs are passed as typed and normalized by the service.
+- An unknown menu choice prints `Invalid option. Enter a number from 1 to 6.`
+- End of input exits like option 6, without the message.
+- Input is read as plain lines with no platform- or shell-specific handling.
+
+The CLI has no unit tests of its own; it adds no rules, and the behaviour it exposes is covered by `CourseRegistrationServiceTest`. It was checked by running a scripted session through `./gradlew run`.

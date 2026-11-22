@@ -1,5 +1,16 @@
 plugins {
     id 'java'
+    id 'application'
+}
+
+application {
+    // DESIGN.md section 13: interactive CLI, launched with ./gradlew run
+    mainClass = 'com.example.waitlist.cli.WaitlistCli'
+}
+
+tasks.named('run') {
+    // Forward the console to the CLI's Scanner.
+    standardInput = System.in
 }
 
 group = 'com.example'
