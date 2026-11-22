@@ -41,5 +41,5 @@ deviations, real command output). Never invent results; mark unchecked items
 
 ## Git
 
-- Work on `feature/waitlist-poc` (tracks `origin/feature/waitlist-poc`); `main` is the base.
+- Work on `assessment/enrollment-poc`; `main` is the base.
 - Ask before pushing, opening PRs or creating remote repositories.

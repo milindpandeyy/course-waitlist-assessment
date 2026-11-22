@@ -17,10 +17,10 @@ service with in-memory state plus an interactive console CLI. The design is in
 
 ## Get the code
 
-The implementation is on the `feature/waitlist-poc` branch, so clone that branch:
+The implementation is on the `assessment/enrollment-poc` branch, so clone that branch:
 
 ```sh
-git clone -b feature/waitlist-poc https://github.com/milindpandeyy/course-waitlist-assessment.git
+git clone -b assessment/enrollment-poc https://github.com/milindpandeyy/course-waitlist-assessment.git
 cd course-waitlist-assessment
 ```
 
