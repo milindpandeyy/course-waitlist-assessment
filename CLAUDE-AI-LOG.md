@@ -1,31 +1,62 @@
 # Claude AI Log
+## AI and Candidate Contributions
 
-Factual record of AI assistance (DESIGN.md §11). Tool for all tasks: Claude Code (desktop app),
-Claude Opus 5.5. The candidate owns design decisions and final acceptance, reviews every task,
-and runs the independent build verification once all implementation is done (last section).
+**Candidate**
+- Reviewed the assessment requirements and made the final design decisions with AI assistance.
+- Reviewed the generated code, tests, and deliverables after each implementation step.
+- Identified defects, requested corrections, and initiated refactoring to improve separation of concerns and code quality.
+- Reviewed the JUnit tests and independently ran the CLI to verify workflows and corner cases.
+- Followed the README instructions to validate the application.
+
+**AI Assistance**
+- ChatGPT assisted with requirement analysis, design discussions, documentation, and task planning.
+- Claude Code implemented the approved tasks, generated unit tests, performed refactoring, and updated documentation.
+- Claude ran automated tests and reported results for review.
+Factual record of AI assistance (DESIGN.md §11). Tool for requirement tasks: ChatGPT , development tasks: Claude Code (desktop app) , 
+Claude Opus 5.5. The candidate owns design decisions and final acceptance, and reviews every task.
+
+Two kinds of verification are recorded separately:
+- **Claude verification** is Claude's own build, test and CLI runs during each task.
+- **Candidate verification** is the candidate's independent check, recorded in Task 1 and in the final section.
+
+## Task 0 — Requirement Analysis and Design (ChatGPT)
+
+**AI assistance:** Used ChatGPT to analyze the assessment requirements, discuss implementation approaches, and prepare the initial `DESIGN.md`.
+
+**Candidate decisions:**
+- Selected plain Java, Gradle, and in-memory storage.
+- Chose a minimal implementation for a single course offering.
+- Discussed the domain model, service APIs, prerequisite validation, FIFO waitlist, and duplicate handling.
+- Reviewed and refined the proposed design, keeping unnecessary abstractions out of the initial implementation.
+- Decided to implement the feature incrementally using Claude Code.
+
+**Outcome:** Produced the initial design specification and divided implementation into focused tasks.
+
+**Verification:** Reviewed the proposed design against the assessment requirements before starting implementation.
+
+**AI interaction record:** Design discussions took place in ChatGPT. This entry summarizes those interactions rather than reproducing the full conversation.
+
+**Note:** The design was changed when implementation was ongoing when I(candidate) found the gaps. Claude was used to correct such issues.
 
 ## Task 1 — Project setup and domain model (2026-11-22)
 
 **Prompt:** Read `DESIGN.md`; create a Java Gradle project, the Domain Model types, the Gradle
 wrapper and test dependencies; run the build and tests; log the work here.
 
-**Produced:** Gradle 9.9.1 wrapper, Groovy build, Java 25 (`--release 25`, `-Xlint:all -Werror`),
-JUnit Jupiter 5.13.4; records `Course`, `LearnerDetails` (unmodifiable set copies; null learner
-ID / course set allowed for `MISSING_LEARNER_DETAILS`); enums `EnrollmentResult`, `DropResult`.
+**Produced:** Gradle 9.9.1 wrapper, Groovy build, Java 25 (`-Xlint:all -Werror`), JUnit Jupiter;
+records `Course`, `LearnerDetails`; enums `EnrollmentResult`, `DropResult`.
 
 **Notes:** `DESIGN.md` was missing at first; Claude asked for it instead of inventing a design.
 Claude flagged a §4/§5 conflict (`NOT_ENROLLED` vs `NOT_REGISTERED`). Phases 1–2 combined at the
 candidate's request.
 
-**Claude verification:** `BUILD SUCCESSFUL`, no warnings; 5/5 model tests, later removed.
+**Claude verification:** `BUILD SUCCESSFUL`, no warnings.
 
 **Candidate review**
-- Status-lookup conflict resolved: use `NOT_ENROLLED` (accepted the `DESIGN.md` §5/§9 update).
-- Approved adding the §4 enums `EnrollmentResult` and `DropResult`.
-- Rejected the model tests: record/POJO tests add no value for this feature; production model
-  classes kept unchanged.
-- Asked for this log to be kept concise.
-- Independent re-run of the build by the candidate: **Verified.**
+- Status-lookup conflict resolved: use `NOT_ENROLLED`.
+- Approved adding the enums `EnrollmentResult` and `DropResult`.
+- Rejected Claude's model tests: record/POJO tests add no value; removed.
+- Candidate verification: independent re-run of the build. **Verified.**
 
 ## Task 2 — Enrollment implementation (2026-11-22)
 
@@ -33,23 +64,19 @@ candidate's request.
 capacity, waitlisting, duplicates, invalid input); add focused JUnit tests for enrollment
 scenarios and state invariants; run them; update this log.
 
-**Produced:** `CourseRegistrationService(Course)` with the §3 state and `enroll` in the §5 rule
-order; enrollment tests for §9 items 1–6, 11, 12, capacity and check order.
+**Produced:** `enroll` in the `DESIGN.md` §5 rule order, with enrollment tests.
 
-**Notes:** Only `enroll` existed, so tests read state through later `enroll` results. Capacity
-below 1 is not validated.
+**Claude verification:** `BUILD SUCCESSFUL`, no warnings; 45/45 tests passed after the
+corrections.
 
 **Candidate review and corrections**
 
 | # | Candidate comment | Correction by Claude |
 | --- | --- | --- |
-| 1 | `CourseRegistrationService` line 36 does an `equals` check on the course ID; input can be in any case, so make it case-insensitive. | Course-ID check made case-insensitive; test added; `DESIGN.md` §5 updated. |
-| 2 | Check course and learner validity separately, put learner validity in its own method, then add the learner to the enrolled set or the waitlist. | Extracted `isValidCourse`, `isValidLearner`, `enrollOrWaitlist`; §5 order kept. |
-| 3 | Make learner IDs case-insensitive too, and trim any spaces. | Added `normalizeId` (strip + lower-case), used for course IDs and for every learner ID before it is checked or stored; tests added. |
-| 4 | Candidate found prerequisites were still matched case-sensitively (`"JAVA"` not met by `"java"`); had `DESIGN.md` state that input to any method is case-insensitive, and asked for the fix. | Added §5 *Input handling*, A13 and test item 16; `meetsPrerequisites` normalizes both sets; tests added. |
-
-**Claude verification:** `BUILD SUCCESSFUL`, no warnings; 25 → 28 → 38 → 45 tests across the
-corrections, all passing.
+| 1 | The course-ID `equals` check must be case-insensitive. | Made case-insensitive; test added. |
+| 2 | Check course and learner validity separately, in their own methods, then enroll or waitlist. | Extracted `isValidCourse`, `isValidLearner`, `enrollOrWaitlist`. |
+| 3 | Make learner IDs case-insensitive too, and trim spaces. | Added `normalizeId` (strip + lower-case) for every ID. |
+| 4 | **Defect found by the candidate:** prerequisites were still matched case-sensitively (`"JAVA"` not met by `"java"`). | `meetsPrerequisites` normalizes both sides; `DESIGN.md` states that all input is case-insensitive. |
 
 ## Task 3 — Drop and FIFO waitlist promotion (2026-11-22)
 
@@ -57,16 +84,14 @@ corrections, all passing.
 waitlisted, invalid and repeated drops; add focused JUnit tests for promotion, FIFO ordering and
 state invariants; run them; update this log.
 
-**Produced:** `drop` per §5 (enrolled → remove and promote the queue head; waitlisted → remove;
-null/blank/unknown → `LEARNER_DETAIL_NOT_FOUND`), normalized IDs; 19 tests for promotion, FIFO
-order, waitlisted/invalid/repeated drops, re-enrollment at the end of the queue, and capacity.
-
-**Notes:** Promotion does not re-check prerequisites; Claude flagged the §8 case as open.
+**Produced:** `drop` (enrolled → remove and promote the queue head; waitlisted → remove;
+null/blank/unknown → `LEARNER_DETAIL_NOT_FOUND`) with 19 tests. Claude flagged the "ineligible
+learner at the front of the waitlist" case as open.
 
 **Claude verification:** `BUILD SUCCESSFUL`, no warnings; 64/64 tests passed.
 
 **Candidate review**
-- Accepted `drop()`, FIFO promotion and the 19 tests as delivered, with no corrections.
+- Accepted as delivered.
 
 ## Task 4 — Status lookup and available seats (2026-11-22)
 
@@ -74,11 +99,7 @@ order, waitlisted/invalid/repeated drops, re-enrollment at the end of the queue,
 focused JUnit tests for enrolled, waitlisted, promoted, dropped and unregistered learners and
 for available seat counts; run them; update this log.
 
-**Produced:** `getAvailableSeats()` (capacity − enrolled); `getLearnerStatus()` (null/blank →
-`MISSING_LEARNER_DETAILS`, else `ENROLLED` / `WAITLISTED` / `NOT_ENROLLED`, read-only,
-normalized ID); 16 tests for statuses, transitions, seat counts and invariants.
-
-**Notes:** A negative capacity would give negative available seats (not validated).
+**Produced:** `getAvailableSeats()` and `getLearnerStatus()` (read-only) with 16 tests.
 
 **Claude verification:** `BUILD SUCCESSFUL`, no warnings; 80/80 tests passed.
 
@@ -86,7 +107,7 @@ normalized ID); 16 tests for statuses, transitions, seat counts and invariants.
 
 | # | Candidate comment | Correction by Claude |
 | --- | --- | --- |
-| 1 | By design, no ineligible learner is ever added to the waitlist (answer to the open §8 case). | Rewrote `DESIGN.md` §8 as the prevention policy; updated §1, §5 *Promotion* and the `promoteFromWaitlist` Javadoc. No behaviour change. |
+| 1 | By design, no ineligible learner is ever added to the waitlist (answers the open case). | `DESIGN.md` §8 rewritten as the prevention policy. No behaviour change. |
 
 ## Task 5 — Final verification and documentation (2026-11-22)
 
@@ -95,32 +116,25 @@ design invariants; report missing edge cases, coverage gaps and potential defect
 changes; run the full suite; finalize `README.md`, `DESIGN.md` and the limitations
 documentation; make this log concise without modifying recorded prompts.
 
-**Findings reported (before changes):** all assessment requirements and §6 invariants are met
-and tested. Potential defect: `Course` is not validated — a null course ID makes `enroll` throw
-`NullPointerException`; capacity below 1 waitlists everyone or gives negative available seats.
-Test gaps: waitlisted learner re-requesting with missing prerequisites; re-enrollment after a
-drop when a seat is free; null `Course` in the constructor. Edge cases for limitations: Unicode
-case folding (e.g. `ß`), blank prerequisite IDs, null set elements, linear waitlist lookup,
-single-threaded and in-memory only. `README.md` / `LIMITATIONS.md` missing; `DESIGN.md` wording
-outdated.
+**Findings reported (before changes):**
+- All requirements and invariants are met and tested.
+- **Defect:** `Course` was not validated. A null course ID made `enroll` throw
+  `NullPointerException`, and a capacity below 1 was accepted.
+- Two test gaps.
 
-**Produced:** `DESIGN.md` rewritten as a plain design document reflecting the implementation
-(constructor in §4, A14–A15, actual test organization in §9, verification process in §11); this
-log condensed (prompts unchanged); `createCourse` (see correction 4).
-
-**Claude verification:** `BUILD SUCCESSFUL`, no warnings; 80/80 tests at review; 94/94 after
-correction 4; 96/96 after corrections 5 and 6.
+**Claude verification:** `BUILD SUCCESSFUL`, no warnings; 96/96 tests passed after the
+corrections.
 
 **Candidate review and corrections**
 
 | # | Candidate comment | Correction by Claude |
 | --- | --- | --- |
-| 1 | Correct `DESIGN.md` wording: it should be a design document, not a prompt. | Removed AI instructions and directive wording; recorded decisions as plain design rules and assumptions. |
-| 2 | Keep pending candidate verification as the last entry, and a candidate review in every step. | Added a *Candidate review* section to every task and a final *Candidate verification* section; `DESIGN.md` §11 describes this. |
-| 3 | `README.md` and limitations will be revisited later. | Not written yet. |
-| 4 | (Answering the `Course` validation finding) No; instead create a public method that creates a course with its prerequisites, saving all inputs in lower case whatever case was entered; invalid input should create no course; call it from the constructor to keep them in sync. | Added `public static Course createCourse(courseId, capacity, prerequisiteCourseIds)`: trims and lower-cases the course ID and prerequisites; throws `IllegalArgumentException` (no course created) for a null/blank ID, capacity below 1, null prerequisite set or null/blank prerequisite. The constructor routes the given `Course` through it. `isValidCourse` / `meetsPrerequisites` now use the stored lower-case values. 14 `CourseCreation` tests added; `DESIGN.md` §4, §5, §6, A15 and §9 item 17 updated. |
-| 5 | Add the two remaining gap tests too. | Added `waitlistedLearnerIsReportedBeforePrerequisitesAreRechecked` (waitlisted learner re-requesting with missing prerequisites gets `ALREADY_WAITLISTED`, stays waitlisted) and `reEnrollmentAfterDropTakesAFreeSeat` (dropped learner re-enrolls into a free seat). Test-only change. |
-| 6 | No method should work unless the course is created first; add a validation method and call it from all public methods. | Added private `requireCourse()` (throws `IllegalStateException` if `course` is null), called first in `enroll`, `drop`, `getAvailableSeats` and `getLearnerStatus`. The static `createCourse` is excluded because it is what creates the course. Not unit-tested: the constructor already rejects a null/invalid course and `course` is `final`, so the guard cannot be reached through the public API. `DESIGN.md` §4 updated. |
+| 1 | `DESIGN.md` must read as a design document, not a prompt. | Rewrote it as plain design rules and assumptions. |
+| 2 | A candidate review in every task; pending candidate verification last. | Added both to this log. |
+| 3 | `README.md` and limitations to be revisited later. | Deferred. |
+| 4 | Answering the `Course` defect: "No"; instead, a public method that creates the course, stores all input in lower case and creates nothing on invalid input, called from the constructor. | Added `createCourse` (throws `IllegalArgumentException` on invalid input); the constructor routes through it; 14 tests. |
+| 5 | Add the two gap tests. | Added. |
+| 6 | No method may work before the course exists; add a guard called from every public method. | Added `requireCourse()`. At this point it could not be reached through the public API, so it was not unit-tested. |
 
 ## Task 6 — Interactive CLI (2026-11-22)
 
@@ -130,42 +144,20 @@ Check Status, Available Seats and Exit; keep the CLI to input/output, reusing th
 `./gradlew run` launch it; add run instructions to `README.md`; document the CLI in its own
 `DESIGN.md` section; run the application and tests; update this log.
 
-**Produced:** `cli/WaitlistCli` (menu loop, one prompt per input, prints the service's enum
-result; `Scanner`/`PrintStream` injected through the constructor); Gradle `application` plugin
-with `mainClass` and `run { standardInput = System.in }`; `DESIGN.md` §13 (menu-to-API table,
-input rules) plus §2, §10 and §12 phase 7; `README.md` with prerequisites, build/test and run
-instructions and an example session.
+**Produced:** `WaitlistCli`, Gradle `application` plugin (`./gradlew run`), `DESIGN.md` §13 and
+`README.md` run instructions. No CLI unit tests: the CLI has no rules of its own.
 
-**Notes:** Claude made these CLI decisions; they are recorded in §13 for review:
-- Choosing *Create course* again replaced the course and discarded its registrations. The
-  candidate found this was a bug (row 2).
-- Options 2–5 before a course exists printed a hint and returned to the menu. The candidate
-  found this was a bug (row 3).
-- A non-numeric capacity is rejected by the CLI; range checks are left to `createCourse`.
-- End of input exits the CLI.
-- A leading byte-order mark was stripped: PowerShell 5.1 added one to piped input, which made
-  the first menu choice invalid in the first scripted run. Removed after review (row 1).
-- No CLI unit tests were added: the CLI adds no rules, and the service tests cover the
-  behaviour it exposes.
+**Claude verification:** `BUILD SUCCESSFUL`, no warnings; 96/96 tests passed; scripted sessions
+through `./gradlew run` matched the expected output after each correction.
 
-**Claude verification:** `BUILD SUCCESSFUL`, no warnings; 96/96 tests passed. Scripted
-sessions through `.\gradlew.bat run -q --console=plain` gave the expected output: no-course
-hint, `ENROLLED`, `WAITLISTED`, `INELIGIBLE`, `ALREADY_ENROLLED`, `INVALID_COURSE_ID`,
-`DROPPED` with FIFO promotion (status `ENROLLED`, seats 0), repeated drop
-`LEARNER_DETAIL_NOT_FOUND`, non-numeric capacity, blank course ID and capacity 0 rejected,
-invalid option, exit.
-
-**Candidate review and corrections**
+**Candidate review and corrections.** All three issues were found by the candidate; Claude's
+own testing had not caught them.
 
 | # | Candidate comment | Correction by Claude |
 | --- | --- | --- |
-| 1 | The byte-order-mark check in `prompt()` (an invisible U+FEFF literal in the source) is not acceptable; the CLI must be platform-agnostic. | Removed the check, so `prompt()` reads plain lines. Removed the rule from `DESIGN.md` §13. Re-verified with input piped from a POSIX shell, which adds no byte-order mark. |
-| 2 | Candidate found a bug: selecting *Create course* again must not be allowed. | Once a course exists, *Create course* now prints `A course has already been created. Only one course is allowed.`, asks for nothing and leaves the course and its registrations unchanged. A failed creation can still be retried. `DESIGN.md` §13 and `README.md` updated. |
-| 3 | Candidate found a bug: choosing *Enroll* before any course exists returns to the menu silently; it should prompt the user to create a course first. | The one-line hint was printed but immediately followed by the redrawn menu. Options 2–5 without a course now print `No course yet. Create a course first.` and run the *Create course* prompts; the chosen option is not carried out. `DESIGN.md` §13 updated. |
-
-All three issues were found by the candidate while reviewing the CLI; Claude's own testing had
-not caught them. Claude made the corrections. After each one: `BUILD SUCCESSFUL`, no warnings,
-96/96 tests passed, and a scripted CLI session confirmed the fix.
+| 1 | The byte-order-mark check Claude added (an invisible U+FEFF literal) is not acceptable; the CLI must be platform-agnostic. | Removed. |
+| 2 | **Defect:** choosing *Create course* again replaced the course and lost its registrations; it must not be allowed. | A second create is refused; a failed create can be retried. |
+| 3 | **Defect:** choosing *Enroll* before a course exists returned to the menu silently; it should prompt to create a course first. | Options 2–5 without a course now start the *Create course* prompts. |
 
 ## Task 7 — README documentation (2026-11-22)
 
@@ -176,41 +168,19 @@ limitations; verify the documented commands where possible; do not invent reposi
 unverified instructions; update this log concisely without modifying recorded prompts; do not
 change application code.
 
-**Produced:** `README.md` rewritten with:
-- prerequisites (JDK 25, Git, the Gradle wrapper);
-- the clone command for the `feature/waitlist-poc` branch;
-- build and test commands for macOS/Linux and Windows;
-- the CLI run command, menu table and input rules;
-- an 11-step sample workflow;
-- limitations.
+**Produced:** `README.md` with prerequisites, clone/build/test/run commands, the CLI menu, a
+sample workflow and limitations. The clone URL comes from `git remote -v`. Claude found that
+`gradlew` was committed without the executable bit.
 
-No application code changed.
-
-**Notes:**
-- The clone URL is taken from `git remote -v`. Anonymous `git ls-remote` succeeded, so the
-  repository is public.
-- `main` contains only a README, so the clone command checks out `feature/waitlist-poc`.
-- `gradlew` was committed as mode `100644` (not executable), so `./gradlew` would likely fail
-  with `Permission denied` after a clone on macOS/Linux. Claude reported this; the fix is
-  candidate review row 1.
-- The PowerShell 5.1 byte-order-mark issue (Task 6, row 1) is listed as a limitation.
-
-**Claude verification:** fresh anonymous clone of `feature/waitlist-poc` into a scratch
-directory:
-- `./gradlew build` and `./gradlew test --tests
-  com.example.waitlist.service.CourseRegistrationServiceTest` (Git Bash): `BUILD SUCCESSFUL`,
-  and the report exists at `build/reports/tests/test/index.html`.
-- `.\gradlew.bat clean build` and the same test command (PowerShell): `BUILD SUCCESSFUL`.
-- The README workflow piped through `./gradlew run -q --console=plain` gave exactly the
-  documented outputs, plus the no-course and second-create messages.
-- Piped from PowerShell 5.1, the first line was rejected, as the limitation states.
-- Interactive typing on Windows was not run by Claude.
+**Claude verification:** in a fresh anonymous clone, the build and test commands succeeded
+(Git Bash and PowerShell), and the README workflow through `./gradlew run` printed the
+documented outputs.
 
 **Candidate review and corrections**
 
 | # | Candidate comment | Correction by Claude |
 | --- | --- | --- |
-| 1 | Approved fixing the `gradlew` file mode. | `git update-index --chmod=+x gradlew`: the index now shows mode `100755`. Content unchanged. The README's `chmod` workaround was removed. Not tested on macOS/Linux. |
+| 1 | Approved fixing the `gradlew` file mode. | Set to `100755`; README workaround removed. |
 
 ## Task 8 — Refactoring (2026-11-22)
 
@@ -224,53 +194,30 @@ directory:
 Review this first for good coding practices such as Separation of Concerns, DRY and YAGNI.
 Then: "GoAhead. lets do it cleanly. Lets keep cli free from business rules."
 
-**Review reported (before changes):**
-- The renames are sound.
-- The split fixes two mixed concerns: static `createCourse` lived on the registration service,
-  and the "configure once" rule lived in the CLI, where it was untested.
-- Recommended `EnrollmentService` read the course from the configuration service instead of
-  taking a `Course`, so there is one validated source and no repeated validation.
-- Recommended one shared helper for ID normalization and the blank check (DRY).
-- YAGNI: no interfaces, catalog, or reconfigure/delete.
+**Review reported (before changes):** the split separates two mixed concerns. Course creation
+lived on the registration service, and the "configure once" rule lived in the CLI, untested.
+Claude recommended:
+- `EnrollmentService` reads the course from the configuration service, giving one validated
+  source;
+- one shared ID helper (DRY);
+- no interfaces, catalog or reconfiguration (YAGNI).
 
-**Produced:** branch `refactor/waitlist-poc` from `867b293`.
-- **Packages:** moved to `com.assessment.enrollment` with `git mv` (history kept); Gradle
-  `group` and `mainClass` updated.
-- **`CourseConfigurationService`:** `configure` (lower-cases, `IllegalArgumentException` for
-  invalid input, `IllegalStateException` on a second call, checked first), `isConfigured`,
-  `getCourse` (`IllegalStateException` before configuration).
-- **`EnrollmentService`:** enroll, drop, status and seats; reads the course on every call, so
-  the `requireCourse` guard is now reachable and tested.
-- **`Ids`:** package-private; `isBlank`, `normalize`, `normalizeAll`. Replaces 5 duplicated blank
-  checks and the private normalizers.
-- **`EnrollmentCli`:** `main` wires both services into the constructor. The "configure once"
-  check moved into the service; the CLI only calls `isConfigured()` to choose the next prompt.
-  User-visible output is unchanged.
-- **Tests:** `EnrollmentServiceTest` (renamed; `BeforeConfiguration` group added) and a new
-  `CourseConfigurationServiceTest` holding the former `CourseCreation` tests plus configure-once,
-  retry and `getCourse` tests.
-- **Docs:** `DESIGN.md` §2, §3, §4 (rewritten), §5, A5, A15, §9 (items 17–19), §10, §12 phase 8
-  and §13 (rewritten); `README.md` test command and count; `CLAUDE.md` commands and code layout.
+**Produced:**
+- **Packages and names:** `com.assessment.enrollment`; `EnrollmentCli`.
+- **`CourseConfigurationService`:** configure once (`IllegalStateException` on a second call),
+  validation, lower-case IDs.
+- **`EnrollmentService`:** enroll, drop, status, seats. The `requireCourse` guard is now
+  reachable and tested.
+- **`Ids`:** shared normalization and blank check, replacing duplicated code.
+- **`EnrollmentCli`:** no business rules; `main` wires the services.
+- **Tests:** split into `EnrollmentServiceTest` and `CourseConfigurationServiceTest`.
 
-**Notes:** Dropped `constructorAppliesTheSameValidation`, because there is only one creation path
-now. `constructorNormalizesAMixedCaseCourse` became `courseConfiguredInMixedCaseMatchesAnyCase`.
-
-**Claude verification:**
-- `.\gradlew.bat clean build` (run as `./gradlew` in Git Bash): `BUILD SUCCESSFUL`, no warnings.
-- 101/101 tests passed: `CourseConfigurationServiceTest` 15, `EnrollmentServiceTest` 86
-  (was 96 in total; +3 `BeforeConfiguration`, +2 configuration tests).
-- A scripted CLI session gave the same output as before the refactor:
-  - no-course prompt;
-  - capacity 0 rejected, then a successful create;
-  - `ENROLLED`, `WAITLISTED`, `INELIGIBLE`, `ALREADY_WAITLISTED`;
-  - drop with promotion, then a repeated drop;
-  - second create refused, `INVALID_COURSE_ID`, invalid option, exit.
+**Claude verification:** `BUILD SUCCESSFUL`, no warnings; 101/101 tests passed; CLI output
+unchanged from before the refactor.
 
 **Candidate review**
-- The design change came from the candidate: rename the packages and the CLI, split course
-  configuration from enrollment, and keep the CLI free of business rules. The aim was to apply
-  clean-coding principles (Separation of Concerns, DRY, YAGNI). Claude reviewed the proposal
-  against those principles and implemented it.
+- The design change was the candidate's proposal, applying Separation of Concerns, DRY and
+  YAGNI. Claude reviewed it and implemented it.
 - Accepted as delivered.
 
 ## Task 9 — Available courses and no-prerequisite check (2026-11-22)
@@ -283,40 +230,48 @@ courses. Also: when a course is configured without prerequisites, no learner wou
 the waitlist; a learner giving 3 completed courses for a course without prerequisites should be
 allowed to enroll. Check this test case.
 
-**Produced:**
-- `CourseConfigurationService.getAvailableCourseIds()`: the configured course's ID in lower
-  case, or an empty set before configuration; a full course is still listed.
-- CLI option 6 *Available courses*; *Exit* moved to option 7. The CLI only formats the IDs the
-  service returns.
-- Tests:
-  - 3 in `CourseConfigurationServiceTest` (empty before configuration, lower-case ID, empty after
-    a rejected configuration);
-  - 1 in `EnrollmentServiceTest`: `courseWithoutPrerequisitesEnrollsThenWaitlistsLearnersWithAnyCompletedCourses`.
-- `DESIGN.md` §4, §9 items 20–21, §12 phase 9 and §13; `README.md` menu, sample workflow and
-  test count.
+**Produced:** `CourseConfigurationService.getAvailableCourseIds()` and CLI option 6 *Available
+courses* (*Exit* moved to option 7), with tests. No-prerequisite check: **no defect**. The new
+test (a learner with 3 completed courses is `ENROLLED`, and later learners are `WAITLISTED`)
+passed before any code change.
 
-**Notes:** No-prerequisite check: no defect.
-- An empty prerequisite set is met by any completed courses.
-- With capacity 1, a learner with 3 completed courses is `ENROLLED`. The next learners, with 3
-  or with none, are `WAITLISTED`, and the first is promoted on a drop.
-- The test passed on its first run, before any code change. The CLI gave the same result with a
-  blank prerequisite line.
-
-**Claude verification:** `./gradlew clean build`: `BUILD SUCCESSFUL`, no warnings; 105/105
-tests passed (was 101). The README workflow through `./gradlew run -q --console=plain` printed
-`No courses available yet.` before configuration and `Available courses: cs201` after, and the
-other steps were unchanged.
+**Claude verification:** `BUILD SUCCESSFUL`, no warnings; 105/105 tests passed.
 
 **Candidate review**
-- User friendliness: the candidate found that `INVALID_COURSE_ID` alone does not tell the user
-  which course ID is valid.
-- Design: the candidate rejected Claude's CLI-only hint, because it would put single-course
-  knowledge in the CLI and break the single responsibility principle. Instead the candidate
-  had the course list exposed through a service method (`getAvailableCourseIds()`), which the
-  CLI only displays. So a future multi-course change stays in the service layer.
+- User friendliness: `INVALID_COURSE_ID` alone does not tell the user which course ID is valid.
+- Rejected Claude's CLI-only hint (single responsibility principle). The course list comes from
+  a service method that the CLI only displays.
 - Accepted as delivered.
+
+## Task 10 — Assessment review and limitations (2026-11-22)
+
+**Prompt:** Read the assessment PDF, act as a reviewer of the assessment and of the application,
+and check whether all deliverables are present or anything is pending. Then: remove
+`LIMITATIONS.md` and add 2 separate sections to `DESIGN.md` with the application's limitations,
+such as concurrency not supported and missing semantic validation. Examples: no validation on
+the length of the course ID, and no limit on the prerequisite list. The application is not
+thread-safe.
+
+**Review reported (before changes):** all 7 acceptance criteria are met and all deliverables are
+present. Open items:
+- the code is not on `main`;
+- `DESIGN.md` lists a missing `LIMITATIONS.md`;
+- the concurrency approach is scattered across the document;
+- follow-up risks are not stated.
+
+**Produced:** `DESIGN.md` only. `LIMITATIONS.md` removed from the layout; new §14 *Concurrency
+and persistence* and §15 *Limitations and follow-up risks* (including missing semantic
+validation).
+
+**Claude verification:** each listed limitation was checked against the code.
+
+**Candidate review**
+- The candidate specified the two sections and the limitations to record.
 
 ## Candidate verification
 
-The candidate cloned `assessment/enrollment-poc`, followed `README.md` and verified the
-application manually: it works. **Verified.**
+I reviewed the deliverables after each implementation step, including the generated code and unit tests. During these reviews, I identified bugs and requested corrections. I also initiated refactoring where the implementation violated clean coding principles, particularly separation of concerns.
+
+For final verification, I followed the README instructions, cloned the repository mentioned, ran the application through the CLI, and manually validated the supported workflows and corner cases. I also reviewed the JUnit test cases to check their coverage of the requirements.
+
+The issues identified during my reviews were corrected, and I manually verified the final application. The known limitations are documented in `DESIGN.md`.

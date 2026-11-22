@@ -249,8 +249,7 @@ course-waitlist/
 ├── settings.gradle
 ├── DESIGN.md
 ├── CLAUDE-AI-LOG.md
-├── README.md
-└── LIMITATIONS.md
+└── README.md
 ```
 
 ## 11. AI use and verification
@@ -268,6 +267,7 @@ AI assistance is recorded in `CLAUDE-AI-LOG.md`, kept separate from this documen
 7. Interactive CLI (§13), launched with `./gradlew run`.
 8. Refactoring: package `com.assessment.enrollment`; course configuration split from enrollment (§4); CLI free of business rules (§13).
 9. Available-courses query (§4) and CLI option.
+10. Concurrency and persistence (§14) and limitations and follow-up risks (§15) documented.
 
 ## 13. Interactive CLI
 
@@ -303,3 +303,47 @@ The CLI contains **no business rules**; it only reads input, converts it, calls 
 - Input is read as plain lines with no platform- or shell-specific handling.
 
 The CLI has no unit tests of its own; it holds no rules, and the behaviour it exposes is covered by the service tests. It was checked by running scripted sessions through `./gradlew run`.
+
+## 14. Concurrency and persistence
+
+### Concurrency: not supported
+
+The application is **not thread-safe** and is designed for single-threaded use only (A4). No locks, synchronization or atomic operations are used.
+
+- `EnrollmentService` keeps its state in a plain `HashSet` and `ArrayDeque`. Each operation is a check followed by an update: `enroll` checks for duplicates, eligibility and a free seat, then adds the learner, and `drop` removes a learner and then promotes the head of the queue.
+- If two threads ran these at the same time, the enrolled count could exceed the capacity. A learner could also be enrolled or queued twice, or a freed seat could be promoted twice or not at all.
+- `CourseConfigurationService.configure` checks "not configured yet" and then stores the course. Two concurrent calls could both pass the check.
+- The CLI is a single-threaded loop, so these races cannot occur through it. There are no concurrency tests (§9).
+
+### Persistence: none
+
+All state lives in memory and is lost when the process ends (A7). This covers the configured course, the enrolled set and the waitlist. There is no database, file storage or recovery.
+
+## 15. Limitations and follow-up risks
+
+### Missing semantic validation
+
+Validation covers presence and basic range only: null/blank IDs, capacity of at least 1, and null/blank prerequisites (§4). Semantic validation is not done:
+
+- **No length limit on IDs.** A course ID, prerequisite ID or learner ID can be any length.
+- **No limit on the prerequisite list.** A course can have any number of prerequisites, and a learner can list any number of completed courses.
+- **No upper bound on capacity.** Any value up to `Integer.MAX_VALUE` is accepted.
+- **No format rules for IDs.** Any characters are accepted, for example `CS 201` or `#!`. Only case and surrounding whitespace are normalized. The CLI cannot enter an ID containing a comma, because it splits lists on commas.
+- **No consistency checks on prerequisites.** A course can list itself as a prerequisite, which makes every learner ineligible unless they report having completed it. Prerequisite IDs are not checked against any list of real courses, because there is no catalog.
+- **Completed courses are self-declared.** The service trusts the learner's completed-course set as given.
+
+### Other limitations
+
+- **Single-threaded and memory only** (§14).
+- **One course per configuration service.** It cannot be edited, removed or reconfigured, and a mistake means restarting the application.
+- **Case-insensitive matching has limits.** IDs are lower-cased with `Locale.ROOT`, so variants that need full Unicode case folding (for example `ß` and `SS`) are not treated as equal.
+- **Waitlist membership checks are linear** in the queue length (`ArrayDeque.contains`).
+- **Results are printed as enum names.** The CLI shows the raw result values, such as `INELIGIBLE`.
+- **No CLI unit tests.** The CLI has no rules; it was checked with scripted sessions.
+
+### Follow-up risks
+
+- **Concurrent use** would need each `enroll`, `drop` and `configure` to run atomically, for example under one lock per course or in a transaction with a persistent store. Concurrency tests would be needed too.
+- **Revocable eligibility.** If completed courses or prerequisites could change after a learner is queued, the prevention policy (§8) would no longer hold. Promotion would then need to re-check eligibility and to skip or remove the learner.
+- **Semantic validation** (length limits, list size limits, self-prerequisites) would belong in `CourseConfigurationService` and `EnrollmentService`, not in the CLI.
+- **Several courses** would change the configuration service and its `getAvailableCourseIds()`. The CLI only displays that list, so it would need no change for listing.
