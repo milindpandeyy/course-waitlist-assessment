@@ -267,7 +267,11 @@ now. `constructorNormalizesAMixedCaseCourse` became `courseConfiguredInMixedCase
   - second create refused, `INVALID_COURSE_ID`, invalid option, exit.
 
 **Candidate review**
-- Not yet reviewed.
+- The design change came from the candidate: rename the packages and the CLI, split course
+  configuration from enrollment, and keep the CLI free of business rules. The aim was to apply
+  clean-coding principles (Separation of Concerns, DRY, YAGNI). Claude reviewed the proposal
+  against those principles and implemented it.
+- Accepted as delivered.
 
 ## Task 9 — Available courses and no-prerequisite check (2026-11-22)
 
@@ -304,9 +308,15 @@ tests passed (was 101). The README workflow through `./gradlew run -q --console=
 other steps were unchanged.
 
 **Candidate review**
-- Not yet reviewed.
+- User friendliness: the candidate found that `INVALID_COURSE_ID` alone does not tell the user
+  which course ID is valid.
+- Design: the candidate rejected Claude's CLI-only hint, because it would put single-course
+  knowledge in the CLI and break the single responsibility principle. Instead the candidate
+  had the course list exposed through a service method (`getAvailableCourseIds()`), which the
+  CLI only displays. So a future multi-course change stays in the service layer.
+- Accepted as delivered.
 
 ## Candidate verification
 
-Independent build and test run by the candidate after all implementation: **Pending candidate
-verification.**
+The candidate cloned `assessment/enrollment-poc`, followed `README.md` and verified the
+application manually: it works. **Verified.**
