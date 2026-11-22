@@ -167,6 +167,51 @@ All three issues were found by the candidate while reviewing the CLI; Claude's o
 not caught them. Claude made the corrections. After each one: `BUILD SUCCESSFUL`, no warnings,
 96/96 tests passed, and a scripted CLI session confirmed the fix.
 
+## Task 7 — README documentation (2026-11-22)
+
+**Prompt:** Read `DESIGN.md` and inspect the implementation; create/update `README.md` so a new
+user can clone, build, test and run the interactive CLI, with prerequisites and setup, exact
+commands, CLI menu options with a sample enrollment/waitlist workflow, and relevant
+limitations; verify the documented commands where possible; do not invent repository URLs or
+unverified instructions; update this log concisely without modifying recorded prompts; do not
+change application code.
+
+**Produced:** `README.md` rewritten with:
+- prerequisites (JDK 25, Git, the Gradle wrapper);
+- the clone command for the `feature/waitlist-poc` branch;
+- build and test commands for macOS/Linux and Windows;
+- the CLI run command, menu table and input rules;
+- an 11-step sample workflow;
+- limitations.
+
+No application code changed.
+
+**Notes:**
+- The clone URL is taken from `git remote -v`. Anonymous `git ls-remote` succeeded, so the
+  repository is public.
+- `main` contains only a README, so the clone command checks out `feature/waitlist-poc`.
+- `gradlew` was committed as mode `100644` (not executable), so `./gradlew` would likely fail
+  with `Permission denied` after a clone on macOS/Linux. Claude reported this; the fix is
+  candidate review row 1.
+- The PowerShell 5.1 byte-order-mark issue (Task 6, row 1) is listed as a limitation.
+
+**Claude verification:** fresh anonymous clone of `feature/waitlist-poc` into a scratch
+directory:
+- `./gradlew build` and `./gradlew test --tests
+  com.example.waitlist.service.CourseRegistrationServiceTest` (Git Bash): `BUILD SUCCESSFUL`,
+  and the report exists at `build/reports/tests/test/index.html`.
+- `.\gradlew.bat clean build` and the same test command (PowerShell): `BUILD SUCCESSFUL`.
+- The README workflow piped through `./gradlew run -q --console=plain` gave exactly the
+  documented outputs, plus the no-course and second-create messages.
+- Piped from PowerShell 5.1, the first line was rejected, as the limitation states.
+- Interactive typing on Windows was not run by Claude.
+
+**Candidate review and corrections**
+
+| # | Candidate comment | Correction by Claude |
+| --- | --- | --- |
+| 1 | Approved fixing the `gradlew` file mode. | `git update-index --chmod=+x gradlew`: the index now shows mode `100755`. Content unchanged. The README's `chmod` workaround was removed. Not tested on macOS/Linux. |
+
 ## Candidate verification
 
 Independent build and test run by the candidate after all implementation: **Pending candidate
