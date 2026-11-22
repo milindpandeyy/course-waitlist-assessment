@@ -98,6 +98,25 @@ class CourseConfigurationServiceTest {
     }
 
     @Test
+    void noCoursesAreAvailableBeforeConfiguration() {
+        assertTrue(configuration.getAvailableCourseIds().isEmpty());
+    }
+
+    @Test
+    void configuredCourseIsAvailableInLowerCase() {
+        configuration.configure(" CS201 ", 1, Set.of());
+
+        assertEquals(Set.of("cs201"), configuration.getAvailableCourseIds());
+    }
+
+    @Test
+    void rejectedConfigurationLeavesNoCourseAvailable() {
+        assertThrows(IllegalArgumentException.class, () -> configuration.configure("CS201", 0, Set.of()));
+
+        assertTrue(configuration.getAvailableCourseIds().isEmpty());
+    }
+
+    @Test
     void notConfiguredUntilConfigureSucceeds() {
         assertFalse(configuration.isConfigured());
         assertThrows(IllegalStateException.class, configuration::getCourse);

@@ -40,7 +40,7 @@ Windows (PowerShell or Command Prompt):
 .\gradlew.bat test --tests com.assessment.enrollment.service.EnrollmentServiceTest
 ```
 
-- `build` compiles the code and runs all 101 JUnit Jupiter tests.
+- `build` compiles the code and runs all 105 JUnit Jupiter tests.
 - The second command runs only the enrollment service tests (`CourseConfigurationServiceTest` holds the course configuration tests).
 - The HTML test report is written to `build/reports/tests/test/index.html`.
 
@@ -63,8 +63,9 @@ Type each answer and press Enter.
 3. Drop learner
 4. Check status
 5. Available seats
-6. Exit
-Choose an option (1-6):
+6. Available courses
+7. Exit
+Choose an option (1-7):
 ```
 
 | Option | Asks for | Prints |
@@ -74,7 +75,8 @@ Choose an option (1-6):
 | 3. Drop learner | learner ID | `Result: DROPPED` or `LEARNER_DETAIL_NOT_FOUND` |
 | 4. Check status | learner ID | `Status: ENROLLED`, `WAITLISTED`, `NOT_ENROLLED` or `MISSING_LEARNER_DETAILS` |
 | 5. Available seats | — | `Available seats: <n>` |
-| 6. Exit | — | `Exit.` |
+| 6. Available courses | — | `Available courses: <ids>` or `No courses available yet.` |
+| 7. Exit | — | `Exit.` |
 
 Input rules:
 
@@ -95,13 +97,14 @@ The course is `CS201`, with capacity 1 and prerequisite `CS101`.
 | 2 | 2 | `CS201`, `alice`, `cs101` | `Result: ENROLLED` | alice takes the only seat. |
 | 3 | 2 | `CS201`, `bob`, `CS101` | `Result: WAITLISTED` | The course is full, so bob joins the waitlist. |
 | 4 | 2 | `CS201`, `carol`, *(blank)* | `Result: INELIGIBLE` | carol lacks `CS101` and is not stored. |
-| 5 | 2 | `CS201`, `bob`, `cs101` | `Result: ALREADY_WAITLISTED` | Duplicate request; bob keeps his place. |
+| 5 | 2 | `CS201`, `bob`, `cs101` | `Result: ALREADY_WAITLISTED` | Duplicate request; bob keeps their place. |
 | 6 | 5 | — | `Available seats: 0` | |
 | 7 | 3 | `Alice` | `Result: DROPPED` | The seat is freed and bob, first in line, is promoted. |
 | 8 | 4 | `BOB` | `Status: ENROLLED` | |
 | 9 | 5 | — | `Available seats: 0` | bob now holds the seat. |
 | 10 | 3 | `alice` | `Result: LEARNER_DETAIL_NOT_FOUND` | A repeated drop changes nothing. |
-| 11 | 6 | — | `Exit.` | |
+| 11 | 6 | — | `Available courses: cs201` | IDs are shown as stored, in lower case. |
+| 12 | 7 | — | `Exit.` | |
 
 ## Limitations
 

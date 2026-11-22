@@ -153,6 +153,20 @@ class EnrollmentServiceTest {
 
             assertEquals(ENROLLED, service.enroll(COURSE_ID, new LearnerDetails("alice", Set.of())));
         }
+
+        @Test
+        void courseWithoutPrerequisitesEnrollsThenWaitlistsLearnersWithAnyCompletedCourses() {
+            service = serviceFor(COURSE_ID, 1, Set.of());
+            Set<String> threeCourses = Set.of("CS101", "MATH101", "JAVA");
+
+            assertEquals(ENROLLED, service.enroll(COURSE_ID, new LearnerDetails("alice", threeCourses)));
+            assertEquals(WAITLISTED, service.enroll(COURSE_ID, new LearnerDetails("bob", threeCourses)));
+            assertEquals(WAITLISTED, service.enroll(COURSE_ID, new LearnerDetails("carol", Set.of())));
+
+            assertEquals(DROPPED, service.drop("alice"));
+            assertEquals(ENROLLED, service.getLearnerStatus("bob"));
+            assertEquals(WAITLISTED, service.getLearnerStatus("carol"));
+        }
     }
 
     @Nested

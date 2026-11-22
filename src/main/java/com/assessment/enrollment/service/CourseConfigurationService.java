@@ -44,6 +44,16 @@ public final class CourseConfigurationService {
         return course;
     }
 
+    /**
+     * IDs (lower case) of the courses learners can enroll in. A full course is still listed,
+     * because learners can join its waitlist.
+     *
+     * @return the configured course's ID, or an empty set before configuration; unmodifiable
+     */
+    public Set<String> getAvailableCourseIds() {
+        return course == null ? Set.of() : Set.of(course.courseId());
+    }
+
     /** True once a course has been configured. */
     public boolean isConfigured() {
         return course != null;

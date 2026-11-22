@@ -269,6 +269,43 @@ now. `constructorNormalizesAMixedCaseCourse` became `courseConfiguredInMixedCase
 **Candidate review**
 - Not yet reviewed.
 
+## Task 9 — Available courses and no-prerequisite check (2026-11-22)
+
+**Prompt:** The candidate verified that a wrong course ID returns `INVALID_COURSE_ID` and asked
+whether showing the valid course ID in the output is worth doing. Claude proposed a CLI-only
+hint. The candidate rejected that: it would tie the CLI to one course, against the single
+responsibility principle. Then: open a new method and add a CLI option to see the available
+courses. Also: when a course is configured without prerequisites, no learner would be added to
+the waitlist; a learner giving 3 completed courses for a course without prerequisites should be
+allowed to enroll. Check this test case.
+
+**Produced:**
+- `CourseConfigurationService.getAvailableCourseIds()`: the configured course's ID in lower
+  case, or an empty set before configuration; a full course is still listed.
+- CLI option 6 *Available courses*; *Exit* moved to option 7. The CLI only formats the IDs the
+  service returns.
+- Tests:
+  - 3 in `CourseConfigurationServiceTest` (empty before configuration, lower-case ID, empty after
+    a rejected configuration);
+  - 1 in `EnrollmentServiceTest`: `courseWithoutPrerequisitesEnrollsThenWaitlistsLearnersWithAnyCompletedCourses`.
+- `DESIGN.md` §4, §9 items 20–21, §12 phase 9 and §13; `README.md` menu, sample workflow and
+  test count.
+
+**Notes:** No-prerequisite check: no defect.
+- An empty prerequisite set is met by any completed courses.
+- With capacity 1, a learner with 3 completed courses is `ENROLLED`. The next learners, with 3
+  or with none, are `WAITLISTED`, and the first is promoted on a drop.
+- The test passed on its first run, before any code change. The CLI gave the same result with a
+  blank prerequisite line.
+
+**Claude verification:** `./gradlew clean build`: `BUILD SUCCESSFUL`, no warnings; 105/105
+tests passed (was 101). The README workflow through `./gradlew run -q --console=plain` printed
+`No courses available yet.` before configuration and `Available courses: cs201` after, and the
+other steps were unchanged.
+
+**Candidate review**
+- Not yet reviewed.
+
 ## Candidate verification
 
 Independent build and test run by the candidate after all implementation: **Pending candidate

@@ -25,7 +25,8 @@ public final class EnrollmentCli {
             3. Drop learner
             4. Check status
             5. Available seats
-            6. Exit""";
+            6. Available courses
+            7. Exit""";
 
     private final CourseConfigurationService configuration;
     private final EnrollmentService enrollment;
@@ -50,7 +51,7 @@ public final class EnrollmentCli {
     public void run() {
         while (true) {
             out.println(MENU);
-            String choice = prompt("Choose an option (1-6): ");
+            String choice = prompt("Choose an option (1-7): ");
             if (choice == null) {
                 return;
             }
@@ -60,11 +61,12 @@ public final class EnrollmentCli {
                 case "3" -> dropLearner();
                 case "4" -> checkStatus();
                 case "5" -> availableSeats();
-                case "6" -> {
+                case "6" -> availableCourses();
+                case "7" -> {
                     out.println("Exit.");
                     return;
                 }
-                default -> out.println("Invalid option. Enter a number from 1 to 6.");
+                default -> out.println("Invalid option. Enter a number from 1 to 7.");
             }
         }
     }
@@ -128,6 +130,14 @@ public final class EnrollmentCli {
             return;
         }
         out.println("Status: " + enrollment.getLearnerStatus(learnerId));
+    }
+
+    /** Lists the courses the configuration service reports; no course is needed for this. */
+    private void availableCourses() {
+        Set<String> courseIds = configuration.getAvailableCourseIds();
+        out.println(courseIds.isEmpty()
+                ? "No courses available yet."
+                : "Available courses: " + String.join(", ", courseIds));
     }
 
     private void availableSeats() {

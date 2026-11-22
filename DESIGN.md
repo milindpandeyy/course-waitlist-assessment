@@ -51,6 +51,7 @@ Two concrete classes in the `service` package, one per concern (no interface/imp
 ```java
 // CourseConfigurationService
 Course configure(String courseId, int capacity, Set<String> prerequisiteCourseIds);
+Set<String> getAvailableCourseIds();
 boolean isConfigured();
 Course getCourse();
 
@@ -67,6 +68,7 @@ EnrollmentResult getLearnerStatus(String learnerId);
 - `configure` creates the course with its prerequisites. It stores the course ID and every prerequisite ID trimmed and in lower case, whatever case they were entered in, and returns the stored `Course`.
 - A course can be configured **once**. A second call throws `IllegalStateException` and leaves the configured course unchanged. This check runs before input validation.
 - Invalid input configures nothing: `IllegalArgumentException` for a null/blank course ID, a capacity below 1, a null prerequisite set, or a null/blank prerequisite ID. A later call with valid input can still succeed.
+- `getAvailableCourseIds()` lists the IDs (lower case) of the courses learners can enroll in: the configured course, or an empty set before configuration. A full course is still listed, because learners can join its waitlist. The CLI shows this list, so a list of several courses would need no CLI change.
 - `isConfigured()` reports whether a course exists. `getCourse()` returns it, or throws `IllegalStateException` if none is configured yet.
 
 ### Enrollment
@@ -216,6 +218,8 @@ Covered scenarios:
 17. `configure` stores course and prerequisite IDs in lower case and rejects a null/blank course ID, a capacity below 1, and null/blank prerequisites, configuring nothing; a valid retry then succeeds.
 18. A second `configure` is rejected and leaves the course unchanged; `getCourse()` before configuration is rejected.
 19. Every `EnrollmentService` method is rejected before a course is configured; a null configuration service is rejected.
+20. `getAvailableCourseIds()` is empty before configuration and after a rejected configuration, and lists the configured course in lower case.
+21. A course without prerequisites enrolls learners whatever courses they have completed (none, or several), and waitlists them once full.
 
 Concurrency is out of scope and is not tested.
 
@@ -263,6 +267,7 @@ AI assistance is recorded in `CLAUDE-AI-LOG.md`, kept separate from this documen
 6. Final verification, assessment-gap review, documentation and log.
 7. Interactive CLI (§13), launched with `./gradlew run`.
 8. Refactoring: package `com.assessment.enrollment`; course configuration split from enrollment (§4); CLI free of business rules (§13).
+9. Available-courses query (§4) and CLI option.
 
 ## 13. Interactive CLI
 
@@ -283,16 +288,18 @@ The CLI contains **no business rules**; it only reads input, converts it, calls 
 | 3. Drop learner | learner ID | `drop` | `Result: <DropResult>` |
 | 4. Check status | learner ID | `getLearnerStatus` | `Status: <EnrollmentResult>` |
 | 5. Available seats | — | `getAvailableSeats` | `Available seats: <n>` |
-| 6. Exit | — | — | `Exit.` |
+| 6. Available courses | — | `getAvailableCourseIds` | `Available courses: <ids>`, or `No courses available yet.` |
+| 7. Exit | — | — | `Exit.` |
 
 ### Flow and input conversion
 
 - Options 2–5 while `isConfigured()` is false print `No course yet. Create a course first.` and go straight into the *Create course* prompts. The chosen option is not carried out; afterwards the menu is shown again.
+- Option 6 needs no course: before configuration it prints `No courses available yet.` It only formats the IDs the service returns, so it holds no single-course assumption.
 - *Create course* while `isConfigured()` is true prints `A course has already been created. Only one course is allowed.` and asks for nothing. The rule itself is `configure`'s (§4): if a second call reached the service, it would refuse it.
 - Capacity text that is not a whole number prints `Capacity must be a whole number.` (a conversion error); range checks belong to `configure`.
 - Comma-separated lists are split on `,` and empty entries are skipped; IDs are passed as typed and normalized by the services.
-- An unknown menu choice prints `Invalid option. Enter a number from 1 to 6.`
-- End of input exits like option 6, without the message.
+- An unknown menu choice prints `Invalid option. Enter a number from 1 to 7.`
+- End of input exits like option 7, without the message.
 - Input is read as plain lines with no platform- or shell-specific handling.
 
 The CLI has no unit tests of its own; it holds no rules, and the behaviour it exposes is covered by the service tests. It was checked by running scripted sessions through `./gradlew run`.
