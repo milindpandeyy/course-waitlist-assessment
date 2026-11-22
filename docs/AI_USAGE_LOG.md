@@ -10,6 +10,7 @@ can tell what was generated and what was checked.
 | 2026-11-22 | Claude | Unit tests | `CourseTest`, `StudentIdTest` (24 test cases incl. a concurrency test) | All 24 pass locally |
 | 2026-11-22 | Claude | Documentation | docs/README.md, docs/DESIGN.md, this file (all in `docs/`) | Human review pending |
 | 2026-11-22 | Claude | Move docs into `docs/` as the brief requires | Moved the three docs, left a short root README pointing to them | Links checked by hand |
+| 2026-11-22 | Claude | Switch build scripts to Groovy DSL at the user's request | Replaced `build.gradle.kts` / `settings.gradle.kts` with `build.gradle` / `settings.gradle`, same settings | `gradlew clean build` passes, 24 tests |
 
 ## Notes
 

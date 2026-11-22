@@ -40,6 +40,7 @@ course.statusOf(StudentId.of("carol")); // ENROLLED
 ## Layout
 
 ```
+build.gradle, settings.gradle   Gradle build (Groovy DSL)
 src/main/java/com/example/waitlist/
   Course.java            course state, enroll / drop / queries
   StudentId.java         validated student identifier
