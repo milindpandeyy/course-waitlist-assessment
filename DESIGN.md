@@ -1,62 +1,64 @@
 # Course Waitlist — Design Specification
 
-**Status:** Candidate-approved design baseline, prior to implementation  
+**Status:** Approved by the candidate; implemented.  
 **Source:** `MILIND PANDEY_AI_Assessment.pdf` — *Focused AI-Assisted Engineering Assessment: Course Waitlist*  
 **Scope:** One course offering, plain Java service, in-memory state.
-
-> **Instruction to AI coding assistants:** Treat this document as the approved design baseline. Do not silently add features, change decisions, or resolve ambiguities. Report conflicts with the assessment and ask for approval before deviating. Preserve a separate, factual `CLAUDE-AI-LOG.md` of actual AI work and verification evidence.
 
 ## 1. Assessment requirements (source-derived)
 
 The assessment requires a bounded feature supporting enrollment, drop, and FIFO waitlist promotion for one offering. Eligible learners enroll when a seat exists or join the waitlist when full, without duplicate entries. A drop opens a seat and promotes the earliest eligible waiting learner. Ineligible learners must not be enrolled or promoted. Invalid requests and repeated drops must return clear results without corrupting state. Focused automated tests must cover normal, full-capacity, duplicate, prerequisite, FIFO, and invalid/repeated-drop cases. Deliverables include runnable code, tests, a proportionate design specification, setup/run instructions, limitations, and an honest AI prompt/use record with independent verification. No starter was supplied; a small in-memory Java service is permitted.
 
-The assessment also asks for an explicit policy for an ineligible learner reaching the front of the waitlist. Our currently approved assumption makes that state unreachable; see §8 for the unresolved compliance risk. This document does **not** claim that this acceptance criterion has been fully satisfied.
+The assessment also asks for an explicit policy for an ineligible learner reaching the front of the waitlist. The policy (§8) is prevention: an ineligible learner is never added to the waitlist, so this state cannot occur.
 
-## 2. Mandatory project prerequisites and scope decisions
+## 2. Prerequisites and scope
 
-- **JDK 25** and **Gradle 9.x** are mandatory project prerequisites (candidate decisions, not assessment requirements).
-- Use a **plain Java service**.
-- Manage **exactly one course offering per service instance**.
+- **JDK 25** and **Gradle 9.x** (candidate decisions, not assessment requirements).
+- A **plain Java service** managing **exactly one course offering per instance**.
 - State is **in-memory only** and lost on restart.
-- Single-threaded usage only. **Concurrent access is not supported**; do not introduce locks or claim thread safety.
-- Use **JUnit Jupiter (JUnit 5)** for focused automated tests; 
-- Put Java records, POJOs, and enums under `com.example.waitlist.model`; service logic under `com.example.waitlist.service`.
-- Keep `CLAUDE-AI-LOG.md` separate from this design and from `README.md`.
+- **Single-threaded use only.** The service uses no locks and is not thread-safe.
+- Tests use **JUnit Jupiter (JUnit 5)**.
+- Records and enums live in `com.example.waitlist.model`; service logic in `com.example.waitlist.service`.
 
 ## 3. Domain model
 
-### `Course` (Java record in `model`)
+### `Course` (record in `model`)
 
 - `String courseId`
 - `int capacity` — maximum enrolled learners
 - `Set<String> prerequisiteCourseIds` — IDs of courses required before this offering
 
-### `LearnerDetails` (Java record in `model`)
+### `LearnerDetails` (record in `model`)
 
 - `String learnerId`
 - `Set<String> completedCourseIds`
 
-Use immutable/defensively copied sets to protect domain invariants. No course catalog or completed-course management service is required.
+Both records store an unmodifiable copy of their set. `LearnerDetails` accepts a null learner ID or a null completed-course set so that the service can report them as `MISSING_LEARNER_DETAILS`. There is no course catalog or completed-course management.
 
-### In-memory registration state (owned by service)
+### In-memory registration state (owned by the service)
 
 - `Set<String> enrolledLearners = new HashSet<>()`
 - `Queue<String> waitlistedLearners = new ArrayDeque<>()`
 
-Do **not** add a separate status map, waitlist membership map, or repository abstraction. Waitlist membership lookup may use `ArrayDeque.contains` (linear time), acceptable for the bounded exercise.
+There is no separate status map, waitlist membership map, or repository abstraction. Waitlist membership is checked with `ArrayDeque.contains` (linear time), which is acceptable for this bounded exercise.
 
 ## 4. Service boundary and public API
 
-One concrete class `CourseRegistrationService` in the `service` package (no interface/implementation split required).
+One concrete class, `CourseRegistrationService`, in the `service` package (no interface/implementation split).
 
 ```java
+static Course createCourse(String courseId, int capacity, Set<String> prerequisiteCourseIds);
+CourseRegistrationService(Course course);   // the single offering; null is rejected
 EnrollmentResult enroll(String courseId, LearnerDetails learnerDetails);
 DropResult drop(String learnerId);
 int getAvailableSeats();
 EnrollmentResult getLearnerStatus(String learnerId);
 ```
 
-`getAvailableSeats()` returns `course.capacity() - enrolledLearners.size()` and requires no course ID because each service instance owns one offering.
+`createCourse` builds a course with its prerequisites, storing the course ID and every prerequisite ID trimmed and in lower case, whatever case they were entered in. Invalid input creates no course: it throws `IllegalArgumentException` for a null/blank course ID, a capacity below 1, a null prerequisite set, or a null/blank prerequisite ID. The constructor passes the given `Course` through `createCourse`, so a course is validated and stored the same way on both paths.
+
+No operation works without a course. Every public instance method (`enroll`, `drop`, `getAvailableSeats`, `getLearnerStatus`) first calls a course check that throws `IllegalStateException` if no course is present. Because the constructor rejects a null or invalid course, a service cannot normally exist without one; the check is a defensive guard.
+
+`getAvailableSeats()` returns `course.capacity() - enrolledLearners.size()`; it takes no course ID because each instance owns one offering.
 
 ### `EnrollmentResult` enum
 
@@ -71,7 +73,7 @@ ALREADY_WAITLISTED,
 NOT_ENROLLED
 ```
 
-`NOT_ENROLLED` is used for status lookup, not a successful enrollment result.
+`NOT_ENROLLED` is returned only by status lookup, never by `enroll`.
 
 ### `DropResult` enum
 
@@ -80,109 +82,123 @@ DROPPED,
 LEARNER_DETAIL_NOT_FOUND
 ```
 
-These are the return types themselves; do **not** introduce separate `EnrollmentStatus` / `DropStatus` wrappers.
+The enums are the return types themselves; there are no `EnrollmentStatus` / `DropStatus` wrappers.
 
 ## 5. Operation rules
 
 ### Input handling (all methods)
 
-Candidate decision, 2026-11-22: every identifier passed to any method is **case-insensitive** and its **surrounding whitespace is ignored**, and each method must handle its input accordingly. This applies to:
+Every identifier passed to any method is **case-insensitive**, and **surrounding whitespace is ignored**. This applies to:
 
 - the `courseId` argument of `enroll`, compared with `Course.courseId`;
 - learner IDs in `enroll`, `drop` and `getLearnerStatus`;
-- course IDs in `Course.prerequisiteCourseIds` and `LearnerDetails.completedCourseIds` when checking eligibility — e.g. a prerequisite `"JAVA"` is satisfied by a completed course `"java"` (or `" Java "`).
+- prerequisite and completed course IDs when checking eligibility — a prerequisite `"JAVA"` is met by a completed course `"java"` or `" Java "`.
 
-The service compares IDs in a normalized form (whitespace stripped from both ends, lower-cased with `Locale.ROOT`) and stores learner IDs in that form, so `" Alice "` and `"alice"` are the same learner. Inner whitespace is significant (`"mary ann"` ≠ `"maryann"`). The domain records keep the values they were given; normalization happens in the service.
+The service compares IDs in a normalized form (whitespace stripped from both ends, lower-cased with `Locale.ROOT`). It stores the course ID, prerequisite IDs and learner IDs in that form, so `" Alice "` and `"alice"` are the same learner. Inner whitespace is significant (`"mary ann"` ≠ `"maryann"`). Normalization happens in the service; the records themselves do not change their values.
 
 ### Enrollment
 
-1. Validate that `courseId` matches the sole offering (compared as described in *Input handling*); otherwise return `INVALID_COURSE_ID` without changing state.
-2. If `learnerDetails` is null, learner ID is null/blank, or completed-course set is null, return `MISSING_LEARNER_DETAILS` without changing state. An empty completed-course set is valid.
-3. If already enrolled, return `ALREADY_ENROLLED` without mutation.
-4. If already waitlisted, return `ALREADY_WAITLISTED` without mutation or moving their position.
-5. Require every prerequisite course ID to appear among the learner's completed course IDs, both compared in normalized form (*Input handling*); otherwise return `INELIGIBLE` without adding the learner anywhere.
-6. If seats are available, add learner ID to enrolled set and return `ENROLLED`.
-7. Otherwise append learner ID to FIFO waitlist and return `WAITLISTED`.
+Checks run in this order; the first one that applies decides the result.
 
-Validation order above is a proposed deterministic implementation rule; flag any problem before changing it.
+1. `courseId` does not match the offering → `INVALID_COURSE_ID`.
+2. `learnerDetails` is null, the learner ID is null/blank, or the completed-course set is null → `MISSING_LEARNER_DETAILS`. An empty completed-course set is valid.
+3. Learner already enrolled → `ALREADY_ENROLLED`.
+4. Learner already waitlisted → `ALREADY_WAITLISTED` (queue position unchanged).
+5. Any prerequisite missing from the completed courses → `INELIGIBLE`; the learner is stored nowhere.
+6. A seat is free → learner added to the enrolled set, `ENROLLED`.
+7. Otherwise → learner appended to the FIFO waitlist, `WAITLISTED`.
+
+Results 1–5 leave the state unchanged.
+
 ### Drop
 
-- If learner is enrolled: remove enrollment, then promote the earliest waitlisted learner (if any), return `DROPPED`.
-- If learner is waitlisted: remove from queue, do **not** promote, return `DROPPED`.
-- If learner is neither enrolled nor waitlisted (including null/blank ID): return `LEARNER_DETAIL_NOT_FOUND` with no mutation.
-- Repeated drops must never free another seat or trigger another promotion.
+- Enrolled learner: removed from the enrolled set, then the oldest waitlisted learner (if any) is promoted; `DROPPED`.
+- Waitlisted learner: removed from the queue, no promotion; `DROPPED`.
+- Null/blank ID, or a learner who is neither enrolled nor waitlisted: `LEARNER_DETAIL_NOT_FOUND`, no change.
+- A repeated drop therefore never frees another seat or triggers another promotion.
 
 ### Promotion
 
-- FIFO: take the oldest waiting learner and enroll them when a seat is freed.
-- Current approved assumption: all waitlisted learners were prerequisite-eligible when queued, and course completion is permanent; therefore the supported flow cannot produce an ineligible waitlist entry. **Do not silently implement a skip/remove/retain policy** without approval. See §8.
+- FIFO: when a seat is freed, the oldest waiting learner is enrolled. Each drop promotes at most one learner.
+- Prerequisites are not re-checked at promotion: every queued learner was eligible when queued and completion is permanent (§8).
 
 ### Status lookup
 
-- Null/blank learner ID: `MISSING_LEARNER_DETAILS`.
-- In enrolled set: `ENROLLED`.
-- In waitlist queue: `WAITLISTED`.
-- Otherwise: `NOT_ENROLLED` (candidate decision, 2026-11-22: matches the §4 enum).
-- This method is read-only and does not maintain a separate status index.
+- Null/blank learner ID → `MISSING_LEARNER_DETAILS`.
+- In the enrolled set → `ENROLLED`.
+- In the waitlist → `WAITLISTED`.
+- Otherwise → `NOT_ENROLLED`.
+- Read-only; status is derived from the enrolled set and the waitlist, with no separate index.
 
 ## 6. Invariants and idempotency
 
-1. `0 <= enrolledLearners.size() <= course.capacity()`.
+1. `0 <= enrolledLearners.size() <= course.capacity()`; capacity is at least 1.
 2. No learner ID occurs more than once in the waitlist.
 3. No learner ID is both enrolled and waitlisted.
-4. Only learners meeting **all** prerequisites enter enrollment or waitlist through the supported API.
-5. Queue order is insertion order for currently waiting learners; promotion is FIFO.
-6. Duplicate enroll requests produce no state mutation; they may return `ALREADY_ENROLLED` or `ALREADY_WAITLISTED` instead of the initial result.
-7. Repeated drops produce no further state mutation and may return `LEARNER_DETAIL_NOT_FOUND` after an initial `DROPPED`.
-8. A learner who drops may later enroll again. This is a **new attempt**: prerequisites are checked again and, if full, they join the **end** of the waitlist; their former position is not restored.
-9. Status lookups do not mutate state.
+4. Only learners meeting **all** prerequisites are enrolled or waitlisted.
+5. Queue order is insertion order; promotion is FIFO.
+6. Duplicate enroll requests change nothing; they return `ALREADY_ENROLLED` or `ALREADY_WAITLISTED`.
+7. Repeated drops change nothing; they return `LEARNER_DETAIL_NOT_FOUND` after the first `DROPPED`.
+8. A learner who drops may enroll again. This is a **new attempt**: prerequisites are checked again and, if the course is full, the learner joins the **end** of the waitlist.
+9. Status lookups do not change state.
 
-This is **state-level idempotency**, not request-key replay or identical-response idempotency. No idempotency-key store is in scope.
+This is **state-level idempotency**, not request-key replay or identical-response idempotency; there is no idempotency-key store.
 
-## 7. Design assumptions (not explicitly required by the assessment)
+## 7. Design assumptions and decisions
 
 - **A1:** Completed courses are permanent: once completed, a course cannot become incomplete.
-- **A2:** Prerequisites are represented by sets of course IDs, and all prerequisites must be completed.
+- **A2:** Prerequisites are sets of course IDs, and all of them must be completed.
 - **A3:** Only eligible learners can join the waitlist; the public API cannot produce an ineligible waitlist entry.
 - **A4:** Single-threaded operation; concurrency is not handled.
 - **A5:** One offering per service instance.
 - **A6:** Learner ID and completed-course set are required; an empty completed-course set is valid.
 - **A7:** In-memory state is ephemeral.
-- **A8:** Duplicate enroll/drop requests must not create additional state changes, although their returned enum values may differ.
-- **A9:** Re-enrollment after drop is a new attempt; waitlist position is not preserved.
+- **A8:** Duplicate enroll/drop requests create no additional state changes, although their returned values may differ.
+- **A9:** Re-enrollment after a drop is a new attempt; waitlist position is not preserved.
 - **A10:** A waitlisted learner may drop to cancel their waiting entry.
-- **A11:** Registration status is derived from the enrolled set and FIFO queue, not maintained in a separate map.
-- **A12:** `INVALID_LEARNER_DETAILS` is intentionally omitted; missing/blank IDs and missing completed-course sets map to `MISSING_LEARNER_DETAILS`.
-- **A13:** All IDs given to any method (course, learner, prerequisite and completed-course IDs) are case-insensitive and ignore surrounding whitespace (§5 *Input handling*; candidate decision).
+- **A11:** Registration status is derived from the enrolled set and the FIFO queue, not kept in a separate map.
+- **A12:** There is no `INVALID_LEARNER_DETAILS`; missing/blank IDs and a missing completed-course set map to `MISSING_LEARNER_DETAILS`.
+- **A13:** All IDs (course, learner, prerequisite and completed-course) are case-insensitive and ignore surrounding whitespace (§5 *Input handling*).
+- **A14:** A learner who is neither enrolled nor waitlisted has status `NOT_ENROLLED`.
+- **A15:** A course needs a non-blank ID, a capacity of at least 1 and non-blank prerequisite IDs; otherwise no course is created (§4 `createCourse`). The `Course` record itself does not validate; the service does.
 
-## 8. Explicit limitation / unresolved assessment conflict
+## 8. Policy: ineligible learner at the front of the waitlist
 
-The assessment requests a documented policy for an **ineligible learner at the front of the waitlist** and says ineligible learners must not be promoted. Under A1–A3, such an entry cannot be created through supported operations, so the approved design currently **does not revalidate prerequisites at promotion or define skip-versus-retain behavior for externally corrupted state**. This is a **potential acceptance-criteria gap**, not something Claude should silently fix. Surface it for candidate review before final submission. An eligibility flag or revalidation policy would require a separate approved design change.
+No ineligible learner is ever added to the waitlist.
 
-## 9. Testing plan
+- `enroll` checks all prerequisites (§5 rule 5) *before* a learner can take a seat or join the queue; an ineligible learner gets `INELIGIBLE` and is stored nowhere.
+- Course completion is permanent (A1), and the API offers no way to change a queued learner's completed courses.
+- Therefore every queued learner is eligible, the front of the queue is always eligible, and promotion enrolls the head of the queue without re-checking prerequisites.
 
-Use JUnit Jupiter. Focus on observable behavior and invariants:
+This answers the assessment's "ineligible learner at the front of the waitlist" case by prevention rather than by a skip/remove/retain rule. Re-validation at promotion would only be needed if a future change let eligibility be lost after queueing (for example, completion revoked or prerequisites changed).
 
-1. Eligible learner enrolls with available seat.
-2. Eligible learner waitlists when full.
-3. Missing prerequisite returns `INELIGIBLE` and does not occupy seat or queue position.
-4. No prerequisites / empty completed-course set can be valid.
-5. Duplicate enrolled request returns `ALREADY_ENROLLED` without mutation.
-6. Duplicate waiting request returns `ALREADY_WAITLISTED` without moving queue position.
-7. Dropping enrolled learner promotes oldest waitlisted learner.
-8. Dropping waitlisted learner removes them without affecting capacity.
-9. Invalid/repeated drops return `LEARNER_DETAIL_NOT_FOUND` without extra promotion.
-10. Re-enrollment after drop joins end of queue if full.
-11. Null/blank learner ID, null learner details, and null completed-course set return `MISSING_LEARNER_DETAILS`.
-12. Unknown course ID returns `INVALID_COURSE_ID` without mutation.
-13. `getAvailableSeats()` reflects enrollments, drops, and promotions.
-14. `getLearnerStatus()` reports enrolled, waitlisted, not enrolled (`NOT_ENROLLED`), and missing ID; promotion/drop transitions are reflected.
-15. Check capacity, uniqueness, and enrolled/waitlisted disjointness after relevant operations.
-16. IDs differing only in case or surrounding whitespace are treated as equal in every method, including prerequisite matching (`"JAVA"` prerequisite satisfied by `"java"` completed).
+## 9. Testing
 
-No concurrency test is promised because concurrency is explicitly unsupported; disclose that limitation.
+All tests are in `CourseRegistrationServiceTest` (JUnit Jupiter), grouped by area, and test observable service behaviour and invariants. Records and enums have no behaviour of their own and are not tested directly.
 
-## 10. Expected project layout
+Covered scenarios:
+
+1. Eligible learner enrolls when a seat is available.
+2. Eligible learner is waitlisted when the course is full.
+3. Missing prerequisite returns `INELIGIBLE` and takes no seat or queue position.
+4. A course without prerequisites accepts an empty completed-course set.
+5. Duplicate request from an enrolled learner returns `ALREADY_ENROLLED` without change.
+6. Duplicate request from a waitlisted learner returns `ALREADY_WAITLISTED` without moving the queue position.
+7. Dropping an enrolled learner promotes the oldest waitlisted learner.
+8. Dropping a waitlisted learner removes them without affecting capacity.
+9. Invalid and repeated drops return `LEARNER_DETAIL_NOT_FOUND` without extra promotion.
+10. Re-enrollment after a drop joins the end of the queue when the course is full.
+11. Null/blank learner ID, null learner details, and a null completed-course set return `MISSING_LEARNER_DETAILS`.
+12. Unknown course ID returns `INVALID_COURSE_ID` without change.
+13. `getAvailableSeats()` reflects enrollments, drops and promotions.
+14. `getLearnerStatus()` reports enrolled, waitlisted, `NOT_ENROLLED` and missing ID, including after promotion and drop.
+15. Capacity, uniqueness, and enrolled/waitlisted disjointness hold after mixed operations.
+16. IDs differing only in case or surrounding whitespace are equal in every method, including prerequisite matching.
+17. `createCourse` and the constructor store course and prerequisite IDs in lower case and reject a null/blank course ID, a capacity below 1, and null/blank prerequisites; a null `Course` is rejected.
+
+Concurrency is out of scope and is not tested.
+
+## 10. Project layout
 
 ```text
 course-waitlist/
@@ -209,15 +225,13 @@ course-waitlist/
 
 ## 11. AI use and verification
 
-`CLAUDE-AI-LOG.md` is a **separate, chronological factual record**, containing actual prompts, relevant Claude response excerpts/summaries, files affected, candidate accept/edit/reject decisions, and independently verified test/build results. Never invent conversations, decisions, commands, or successful tests. If an entry awaits candidate verification, mark it **Pending verification**. The candidate owns architecture decisions and final acceptance.
+AI assistance is recorded in `CLAUDE-AI-LOG.md`, kept separate from this document and from `README.md`. Each task entry records the prompt, what was produced, deviations, the candidate's review and corrections, and Claude's own build and test results. The candidate owns design decisions and final acceptance, reviews every task, and performs the independent build verification once, after all implementation; that verification is the final entry in the log.
 
-## 12. Implementation sequencing
+## 12. Implementation phases
 
-1. Project skeleton only: Java 25, Gradle 9.x wrapper, JUnit Jupiter, package folders, README prerequisites, empty log template. **No business logic.**
-2. Domain records and enums after candidate review.
-3. Enrollment behavior and focused tests.
-4. Drop, promotion, and focused tests.
-5. Status lookup and remaining tests.
-6. Independent verification, explicit assessment-gap review, documentation, and final log.
-
-Do not combine these phases without candidate authorization.
+1. Project skeleton: Java 25, Gradle 9.x wrapper, JUnit Jupiter, package folders.
+2. Domain records and enums.
+3. Enrollment behaviour and tests.
+4. Drop, promotion and tests.
+5. Status lookup, available seats and tests.
+6. Final verification, assessment-gap review, documentation and log.

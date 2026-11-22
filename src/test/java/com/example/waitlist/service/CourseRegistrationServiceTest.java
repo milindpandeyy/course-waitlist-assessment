@@ -1,17 +1,23 @@
 package com.example.waitlist.service;
 
+import static com.example.waitlist.model.DropResult.DROPPED;
+import static com.example.waitlist.model.DropResult.LEARNER_DETAIL_NOT_FOUND;
 import static com.example.waitlist.model.EnrollmentResult.ALREADY_ENROLLED;
 import static com.example.waitlist.model.EnrollmentResult.ALREADY_WAITLISTED;
 import static com.example.waitlist.model.EnrollmentResult.ENROLLED;
 import static com.example.waitlist.model.EnrollmentResult.INELIGIBLE;
 import static com.example.waitlist.model.EnrollmentResult.INVALID_COURSE_ID;
 import static com.example.waitlist.model.EnrollmentResult.MISSING_LEARNER_DETAILS;
+import static com.example.waitlist.model.EnrollmentResult.NOT_ENROLLED;
 import static com.example.waitlist.model.EnrollmentResult.WAITLISTED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.waitlist.model.Course;
 import com.example.waitlist.model.EnrollmentResult;
 import com.example.waitlist.model.LearnerDetails;
+import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -174,6 +180,16 @@ class CourseRegistrationServiceTest {
             // DESIGN.md section 5 order: rule 3 (already enrolled) precedes rule 5 (eligibility).
             assertEquals(ALREADY_ENROLLED, enroll(ineligible("alice")));
         }
+
+        @Test
+        void waitlistedLearnerIsReportedBeforePrerequisitesAreRechecked() {
+            fillCourse();
+            assertEquals(WAITLISTED, enroll(eligible("carol")));
+
+            // DESIGN.md section 5 order: rule 4 (already waitlisted) precedes rule 5 (eligibility).
+            assertEquals(ALREADY_WAITLISTED, enroll(ineligible("carol")));
+            assertEquals(WAITLISTED, service.getLearnerStatus("carol"));
+        }
     }
 
     @Nested
@@ -258,6 +274,457 @@ class CourseRegistrationServiceTest {
 
             // DESIGN.md section 5 order: rule 2 (missing details) precedes rule 4 (already waitlisted).
             assertEquals(MISSING_LEARNER_DETAILS, enroll(new LearnerDetails("carol", null)));
+        }
+    }
+
+    /**
+     * Drop and FIFO promotion (DESIGN.md sections 5, 6 and 9 items 6-10, 15). Most tests use a
+     * one-seat course so that "who holds the seat" identifies exactly who was promoted. Without
+     * status lookup (a later phase), state is read through {@code enroll} and {@code drop}
+     * results: ALREADY_ENROLLED means enrolled, ALREADY_WAITLISTED means still queued, and a
+     * second drop returning DROPPED would reveal a leftover copy of the learner.
+     */
+    @Nested
+    class DropAndPromotion {
+
+        @BeforeEach
+        void oneSeat() {
+            service = new CourseRegistrationService(new Course(COURSE_ID, 1, Set.of(PREREQ)));
+        }
+
+        @Test
+        void droppingEnrolledLearnerWithEmptyWaitlistFreesTheSeat() {
+            assertEquals(ENROLLED, enroll(eligible("alice")));
+
+            assertEquals(DROPPED, service.drop("alice"));
+            assertEquals(ENROLLED, enroll(eligible("bob")));
+        }
+
+        @Test
+        void droppingEnrolledLearnerPromotesOldestWaitlistedLearner() {
+            enroll(eligible("alice"));
+            enroll(eligible("bob"));
+            enroll(eligible("carol"));
+
+            assertEquals(DROPPED, service.drop("alice"));
+
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("bob")));
+            assertEquals(ALREADY_WAITLISTED, enroll(eligible("carol")));
+        }
+
+        @Test
+        void promotionFollowsArrivalOrderAcrossSuccessiveDrops() {
+            enroll(eligible("seat"));
+            for (String learner : new String[] {"w1", "w2", "w3", "w4"}) {
+                assertEquals(WAITLISTED, enroll(eligible(learner)));
+            }
+
+            String holder = "seat";
+            for (String expectedNext : new String[] {"w1", "w2", "w3", "w4"}) {
+                assertEquals(DROPPED, service.drop(holder));
+                assertEquals(ALREADY_ENROLLED, enroll(eligible(expectedNext)), expectedNext + " promoted");
+                holder = expectedNext;
+            }
+            assertEquals(DROPPED, service.drop(holder));
+            assertEquals(ENROLLED, enroll(eligible("late"))); // queue empty, seat free
+        }
+
+        @Test
+        void eachDropPromotesExactlyOneLearner() {
+            service = new CourseRegistrationService(new Course(COURSE_ID, 2, Set.of(PREREQ)));
+            enroll(eligible("a"));
+            enroll(eligible("b"));
+            enroll(eligible("w1"));
+            enroll(eligible("w2"));
+
+            assertEquals(DROPPED, service.drop("a"));
+
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("w1")));
+            assertEquals(ALREADY_WAITLISTED, enroll(eligible("w2"))); // capacity 2 still respected
+            assertEquals(WAITLISTED, enroll(eligible("new")));
+        }
+
+        @Test
+        void droppingWaitlistedLearnerRemovesThemWithoutPromotionOrFreeingASeat() {
+            enroll(eligible("alice"));
+            enroll(eligible("bob"));
+            enroll(eligible("carol"));
+
+            assertEquals(DROPPED, service.drop("bob"));
+
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("alice")));     // seat untouched
+            assertEquals(ALREADY_WAITLISTED, enroll(eligible("carol")));   // not promoted
+            assertEquals(DROPPED, service.drop("alice"));
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("carol")));     // carol is now first
+        }
+
+        @Test
+        void droppingWaitlistedLearnerKeepsOrderOfOthers() {
+            enroll(eligible("seat"));
+            enroll(eligible("w1"));
+            enroll(eligible("w2"));
+            enroll(eligible("w3"));
+
+            assertEquals(DROPPED, service.drop("w2"));
+
+            service.drop("seat");
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("w1")));
+            service.drop("w1");
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("w3")));
+        }
+
+        @ParameterizedTest
+        @NullAndEmptySource
+        @ValueSource(strings = {"   ", "\t", "unknown"})
+        void invalidOrUnknownDropChangesNothing(String learnerId) {
+            enroll(eligible("alice"));
+            enroll(eligible("bob"));
+
+            assertEquals(LEARNER_DETAIL_NOT_FOUND, service.drop(learnerId));
+
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("alice")));
+            assertEquals(ALREADY_WAITLISTED, enroll(eligible("bob")));
+            assertEquals(WAITLISTED, enroll(eligible("carol"))); // no seat was freed
+        }
+
+        @Test
+        void repeatedDropOfEnrolledLearnerDoesNotFreeAnotherSeatOrPromoteAgain() {
+            enroll(eligible("alice"));
+            enroll(eligible("bob"));
+            enroll(eligible("carol"));
+
+            assertEquals(DROPPED, service.drop("alice"));
+            assertEquals(LEARNER_DETAIL_NOT_FOUND, service.drop("alice"));
+            assertEquals(LEARNER_DETAIL_NOT_FOUND, service.drop(" ALICE "));
+
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("bob")));
+            assertEquals(ALREADY_WAITLISTED, enroll(eligible("carol")));
+        }
+
+        @Test
+        void repeatedDropOfWaitlistedLearnerIsNotFound() {
+            enroll(eligible("alice"));
+            enroll(eligible("bob"));
+
+            assertEquals(DROPPED, service.drop("bob"));
+            assertEquals(LEARNER_DETAIL_NOT_FOUND, service.drop("bob"));
+        }
+
+        @Test
+        void promotedLearnerIsNoLongerWaitlisted() {
+            enroll(eligible("alice"));
+            enroll(eligible("bob"));
+            service.drop("alice");
+
+            // If bob were both enrolled and still queued, the second drop would return DROPPED.
+            assertEquals(DROPPED, service.drop("bob"));
+            assertEquals(LEARNER_DETAIL_NOT_FOUND, service.drop("bob"));
+        }
+
+        @Test
+        void reEnrollmentAfterDropJoinsEndOfWaitlist() {
+            enroll(eligible("alice"));
+            enroll(eligible("bob"));
+            service.drop("alice");                                   // bob promoted
+
+            assertEquals(WAITLISTED, enroll(eligible("carol")));
+            assertEquals(WAITLISTED, enroll(eligible("alice")));     // new attempt, behind carol
+
+            service.drop("bob");
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("carol")));
+            assertEquals(ALREADY_WAITLISTED, enroll(eligible("alice")));
+        }
+
+        @Test
+        void reEnrollmentAfterDropTakesAFreeSeat() {
+            assertEquals(ENROLLED, enroll(eligible("alice")));
+            assertEquals(DROPPED, service.drop("alice"));
+
+            assertEquals(ENROLLED, enroll(eligible("alice")));
+            assertEquals(ENROLLED, service.getLearnerStatus("alice"));
+            assertEquals(0, service.getAvailableSeats());
+        }
+
+        @Test
+        void reEnrollmentAfterDropRechecksPrerequisites() {
+            enroll(eligible("alice"));
+            service.drop("alice");
+
+            assertEquals(INELIGIBLE, enroll(ineligible("alice")));
+        }
+
+        @Test
+        void duplicateWaitlistRequestDoesNotMoveQueuePosition() {
+            enroll(eligible("seat"));
+            enroll(eligible("bob"));
+            enroll(eligible("carol"));
+
+            assertEquals(ALREADY_WAITLISTED, enroll(eligible("bob")));
+            service.drop("seat");
+
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("bob")));
+            assertEquals(ALREADY_WAITLISTED, enroll(eligible("carol")));
+        }
+
+        @Test
+        void dropMatchesLearnerIdIgnoringCaseAndSurroundingWhitespace() {
+            enroll(eligible("Alice"));
+            enroll(eligible("Bob"));
+
+            assertEquals(DROPPED, service.drop("  ALICE "));
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("bob")));
+            assertEquals(DROPPED, service.drop("\tbOB\n"));
+        }
+
+        @Test
+        void seatsNeverExceedCapacityThroughDropsAndPromotions() {
+            service = new CourseRegistrationService(new Course(COURSE_ID, 2, Set.of(PREREQ)));
+            for (String learner : new String[] {"a", "b", "c", "d", "e"}) {
+                enroll(eligible(learner));
+            }
+
+            service.drop("a");                       // c promoted
+            service.drop("d");                       // waitlisted drop, no promotion
+            service.drop("b");                       // e promoted
+
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("c")));
+            assertEquals(ALREADY_ENROLLED, enroll(eligible("e")));
+            assertEquals(WAITLISTED, enroll(eligible("f"))); // both seats taken, not three
+        }
+    }
+
+    /** Course creation and validation through {@code createCourse} and the constructor. */
+    @Nested
+    class CourseCreation {
+
+        @Test
+        void createCourseStoresIdAndPrerequisitesTrimmedInLowerCase() {
+            Course course = CourseRegistrationService.createCourse(" CS201 ", 3, Set.of("JAVA", " Sql "));
+
+            assertEquals("cs201", course.courseId());
+            assertEquals(3, course.capacity());
+            assertEquals(Set.of("java", "sql"), course.prerequisiteCourseIds());
+        }
+
+        @Test
+        void createCourseMergesPrerequisitesThatDifferOnlyInCase() {
+            Course course = CourseRegistrationService.createCourse("CS201", 1, Set.of("JAVA", "java "));
+
+            assertEquals(Set.of("java"), course.prerequisiteCourseIds());
+        }
+
+        @Test
+        void createCourseAcceptsNoPrerequisites() {
+            assertTrue(CourseRegistrationService.createCourse("CS201", 1, Set.of())
+                    .prerequisiteCourseIds().isEmpty());
+        }
+
+        @ParameterizedTest
+        @NullAndEmptySource
+        @ValueSource(strings = {"   ", "\t"})
+        void createCourseRejectsNullOrBlankCourseId(String courseId) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> CourseRegistrationService.createCourse(courseId, 1, Set.of()));
+        }
+
+        @ParameterizedTest
+        @ValueSource(ints = {0, -1, Integer.MIN_VALUE})
+        void createCourseRejectsCapacityBelowOne(int capacity) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> CourseRegistrationService.createCourse("CS201", capacity, Set.of()));
+        }
+
+        @Test
+        void createCourseRejectsNullOrBlankPrerequisites() {
+            assertThrows(IllegalArgumentException.class,
+                    () -> CourseRegistrationService.createCourse("CS201", 1, null));
+            assertThrows(IllegalArgumentException.class,
+                    () -> CourseRegistrationService.createCourse("CS201", 1, Set.of("JAVA", " ")));
+            Set<String> withNull = new HashSet<>();
+            withNull.add(null);
+            assertThrows(IllegalArgumentException.class,
+                    () -> CourseRegistrationService.createCourse("CS201", 1, withNull));
+        }
+
+        @Test
+        void constructorRejectsNullCourse() {
+            assertThrows(NullPointerException.class, () -> new CourseRegistrationService(null));
+        }
+
+        @Test
+        void constructorAppliesTheSameValidation() {
+            assertThrows(IllegalArgumentException.class,
+                    () -> new CourseRegistrationService(new Course(null, 1, Set.of())));
+            assertThrows(IllegalArgumentException.class,
+                    () -> new CourseRegistrationService(new Course(" ", 1, Set.of())));
+            assertThrows(IllegalArgumentException.class,
+                    () -> new CourseRegistrationService(new Course(COURSE_ID, 0, Set.of())));
+            assertThrows(IllegalArgumentException.class,
+                    () -> new CourseRegistrationService(new Course(COURSE_ID, 1, Set.of(""))));
+        }
+
+        @Test
+        void constructorNormalizesAMixedCaseCourse() {
+            service = new CourseRegistrationService(new Course(" Cs201 ", 1, Set.of(" JAVA ")));
+
+            assertEquals(ENROLLED, service.enroll("CS201", new LearnerDetails("alice", Set.of("java"))));
+        }
+    }
+
+    /** Status lookup and available seats (DESIGN.md sections 4, 5, 6 and 9 items 13-15). */
+    @Nested
+    class StatusAndSeats {
+
+        @Test
+        void newCourseHasAllSeatsFree() {
+            assertEquals(2, service.getAvailableSeats());
+        }
+
+        @Test
+        void enrolledLearnerIsEnrolled() {
+            enroll(eligible("alice"));
+
+            assertEquals(ENROLLED, service.getLearnerStatus("alice"));
+        }
+
+        @Test
+        void waitlistedLearnerIsWaitlisted() {
+            fillCourse();
+            enroll(eligible("carol"));
+
+            assertEquals(WAITLISTED, service.getLearnerStatus("carol"));
+        }
+
+        @Test
+        void unregisteredLearnerIsNotEnrolled() {
+            assertEquals(NOT_ENROLLED, service.getLearnerStatus("nobody"));
+        }
+
+        @Test
+        void ineligibleLearnerIsNotEnrolled() {
+            enroll(ineligible("ivan"));
+
+            assertEquals(NOT_ENROLLED, service.getLearnerStatus("ivan"));
+        }
+
+        @ParameterizedTest
+        @NullAndEmptySource
+        @ValueSource(strings = {"   ", "\t"})
+        void nullOrBlankIdIsMissingLearnerDetails(String learnerId) {
+            assertEquals(MISSING_LEARNER_DETAILS, service.getLearnerStatus(learnerId));
+        }
+
+        @Test
+        void statusMatchesLearnerIdIgnoringCaseAndSurroundingWhitespace() {
+            enroll(eligible("Alice"));
+
+            assertEquals(ENROLLED, service.getLearnerStatus("  ALICE "));
+            assertEquals(ENROLLED, service.getLearnerStatus("alice"));
+        }
+
+        @Test
+        void promotedLearnerBecomesEnrolledAndDroppedLearnerIsNotEnrolled() {
+            fillCourse();
+            enroll(eligible("carol"));
+            enroll(eligible("dave"));
+
+            service.drop("seat-1");
+
+            assertEquals(NOT_ENROLLED, service.getLearnerStatus("seat-1"));
+            assertEquals(ENROLLED, service.getLearnerStatus("carol"));
+            assertEquals(WAITLISTED, service.getLearnerStatus("dave"));
+        }
+
+        @Test
+        void droppedWaitlistedLearnerIsNotEnrolled() {
+            fillCourse();
+            enroll(eligible("carol"));
+
+            service.drop("carol");
+
+            assertEquals(NOT_ENROLLED, service.getLearnerStatus("carol"));
+        }
+
+        @Test
+        void availableSeatsFollowEnrollmentsDropsAndPromotions() {
+            assertEquals(2, service.getAvailableSeats());
+
+            enroll(eligible("a"));
+            assertEquals(1, service.getAvailableSeats());
+            enroll(eligible("b"));
+            assertEquals(0, service.getAvailableSeats());
+            enroll(eligible("w1"));                  // waitlisted: no seat used
+            assertEquals(0, service.getAvailableSeats());
+
+            service.drop("a");                       // w1 promoted into the freed seat
+            assertEquals(0, service.getAvailableSeats());
+            service.drop("w1");                      // nobody waiting: seat stays free
+            assertEquals(1, service.getAvailableSeats());
+            service.drop("b");
+            assertEquals(2, service.getAvailableSeats());
+        }
+
+        @Test
+        void availableSeatsUnchangedByRejectedRequestsWaitlistDropsAndRepeatedDrops() {
+            enroll(eligible("a"));
+            enroll(eligible("b"));
+            enroll(eligible("w1"));
+
+            enroll(ineligible("ivan"));
+            service.enroll("CS999", eligible("x"));
+            enroll(null);
+            enroll(eligible("a"));                   // duplicate
+            service.drop("w1");                      // waitlisted drop
+            service.drop("w1");                      // repeated drop
+            service.drop("unknown");
+
+            assertEquals(0, service.getAvailableSeats());
+        }
+
+        @Test
+        void statusLookupDoesNotChangeState() {
+            fillCourse();
+            enroll(eligible("carol"));
+
+            for (int i = 0; i < 3; i++) {
+                service.getLearnerStatus("seat-1");
+                service.getLearnerStatus("carol");
+                service.getLearnerStatus("nobody");
+                service.getLearnerStatus(null);
+            }
+
+            assertEquals(0, service.getAvailableSeats());
+            assertEquals(ENROLLED, service.getLearnerStatus("seat-1"));
+            assertEquals(WAITLISTED, service.getLearnerStatus("carol"));
+            assertEquals(NOT_ENROLLED, service.getLearnerStatus("nobody"));
+        }
+
+        @Test
+        void invariantsHoldAfterMixedOperations() {
+            String[] learners = {"a", "b", "c", "d", "e", "f"};
+            for (String learner : learners) {
+                enroll(eligible(learner));
+            }
+            service.drop("b");
+            service.drop("e");
+            service.drop("a");
+            enroll(eligible("a"));
+
+            int enrolled = 0;
+            for (String learner : learners) {
+                EnrollmentResult status = service.getLearnerStatus(learner);
+                if (status == ENROLLED) {
+                    enrolled++;
+                }
+            }
+            assertEquals(2, enrolled, "enrolled count equals capacity");
+            assertEquals(0, service.getAvailableSeats());
+            assertEquals(ENROLLED, service.getLearnerStatus("c"));
+            assertEquals(ENROLLED, service.getLearnerStatus("d"));
+            assertEquals(WAITLISTED, service.getLearnerStatus("f"));
+            assertEquals(WAITLISTED, service.getLearnerStatus("a"));
+            assertEquals(NOT_ENROLLED, service.getLearnerStatus("b"));
+            assertEquals(NOT_ENROLLED, service.getLearnerStatus("e"));
         }
     }
 }
