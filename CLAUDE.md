@@ -43,3 +43,14 @@ deviations, real command output). Never invent results; mark unchecked items
 
 - Work on `assessment/enrollment-poc`; `main` is the base.
 - Ask before pushing, opening PRs or creating remote repositories.
+
+## Interview
+
+- interview-log.md is the log of all interview questions asked to me.
+- after every interview, when you are told to update interview log, you ask about company name and interview questions.
+- Categorize these questions as java, microservices, springboot, lld, hld or DSA as per the category it belongs to.
+- Answer these questions so that I can do a quick review of all questions.
+- Answer to the point and be factually correct.
+- Keep the java answers aligned to java21
+- Answer to the point and short. whereever code is needed, give the code.
+- For java stream questions, just complete the task using stream api. Dont worry about performance. 
